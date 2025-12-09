@@ -1,0 +1,26 @@
+{
+  "name": "library-checker",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "import": "tsx src/import-csv.ts",
+    "refresh:library": "tsx src/refresh-library.ts",
+    "refresh:ratings": "tsx src/refresh-ratings.ts",
+    "refresh:genres": "tsx src/refresh-genres.ts"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.5.0",
+    "csv-parse": "^5.5.2",
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.10.0",
+    "tsx": "^4.6.2",
+    "typescript": "^5.3.2"
+  }
+}
