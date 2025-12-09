@@ -47,6 +47,20 @@ try {
   // Column already exists
 }
 
+// Add culture column if it doesn't exist (migration)
+try {
+  db.exec(`ALTER TABLE books ADD COLUMN culture TEXT`);
+} catch {
+  // Column already exists
+}
+
+// Add pinned column if it doesn't exist (migration)
+try {
+  db.exec(`ALTER TABLE books ADD COLUMN pinned INTEGER DEFAULT 0`);
+} catch {
+  // Column already exists
+}
+
 export interface Book {
   bookId: string;
   title: string;
@@ -65,6 +79,8 @@ export interface Book {
   catalogUrl: string | null;
   libraryCheckedAt: string | null;
   squirrelHillAvailable: boolean;
+  culture: string | null;
+  pinned: boolean;
 }
 
 export function importGoodreadsCSV(filepath: string): number {
@@ -105,7 +121,9 @@ export function getAllBooks(): Book[] {
       total_copies as totalCopies, held_copies as heldCopies,
       library_format as libraryFormat, catalog_url as catalogUrl,
       library_checked_at as libraryCheckedAt,
-      squirrel_hill_available as squirrelHillAvailable
+      squirrel_hill_available as squirrelHillAvailable,
+      culture,
+      pinned
     FROM books
     ORDER BY date_added DESC
   `).all() as Book[];
@@ -180,6 +198,29 @@ export function updateGenres(bookId: string, genres: string[]): void {
   db.prepare(`UPDATE books SET genres = ? WHERE book_id = ?`).run(JSON.stringify(genres), bookId);
 }
 
+export function updateCulture(bookId: string, culture: string): void {
+  db.prepare(`UPDATE books SET culture = ? WHERE book_id = ?`).run(culture, bookId);
+}
+
+export function getBooksNeedingCulture(limit: number): Book[] {
+  const rows = db.prepare(`
+    SELECT
+      book_id as bookId, title, author, isbn, isbn13, date_added as dateAdded,
+      avg_rating as avgRating, num_ratings as numRatings, genres,
+      library_status as libraryStatus, available_copies as availableCopies,
+      total_copies as totalCopies, held_copies as heldCopies,
+      library_format as libraryFormat, catalog_url as catalogUrl,
+      library_checked_at as libraryCheckedAt,
+      squirrel_hill_available as squirrelHillAvailable,
+      culture
+    FROM books
+    WHERE culture IS NULL
+    ORDER BY date_added DESC
+    LIMIT ?
+  `).all(limit) as Book[];
+  return rows;
+}
+
 export function getBooksNeedingGenres(limit: number): Book[] {
   const rows = db.prepare(`
     SELECT
@@ -211,6 +252,30 @@ export function getAllGenres(): { genre: string; count: number }[] {
   return [...genreCounts.entries()]
     .map(([genre, count]) => ({ genre, count }))
     .sort((a, b) => b.count - a.count);
+}
+
+export function addBook(book: {
+  bookId: string;
+  title: string;
+  author: string;
+  isbn?: string;
+  isbn13?: string;
+}): void {
+  db.prepare(`
+    INSERT OR IGNORE INTO books (book_id, title, author, isbn, isbn13, date_added)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(book.bookId, book.title, book.author, book.isbn || null, book.isbn13 || null, new Date().toISOString());
+}
+
+export function deleteBook(bookId: string): void {
+  db.prepare(`DELETE FROM books WHERE book_id = ?`).run(bookId);
+}
+
+export function togglePin(bookId: string): boolean {
+  const book = db.prepare(`SELECT pinned FROM books WHERE book_id = ?`).get(bookId) as { pinned: number } | undefined;
+  const newPinned = book?.pinned ? 0 : 1;
+  db.prepare(`UPDATE books SET pinned = ? WHERE book_id = ?`).run(newPinned, bookId);
+  return newPinned === 1;
 }
 
 export function getStats() {

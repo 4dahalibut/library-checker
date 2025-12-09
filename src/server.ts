@@ -1,6 +1,7 @@
 import express from "express";
-import { getAllBooks, getStats, getAllGenres, updateLibraryData } from "./db.js";
+import { getAllBooks, getStats, getAllGenres, updateLibraryData, addBook, deleteBook, togglePin } from "./db.js";
 import { searchLibrary } from "./library.js";
+import { getHolds, placeHold, cancelHold } from "./holds.js";
 
 const app = express();
 const PORT = 3456;
@@ -16,6 +17,96 @@ app.get("/api/books", (_req, res) => {
   const stats = getStats();
   const genres = getAllGenres();
   res.json({ books, stats, genres });
+});
+
+app.get("/holds", (_req, res) => {
+  res.send(getHoldsHTML());
+});
+
+app.get("/api/holds", async (_req, res) => {
+  try {
+    const holds = await getHolds();
+    res.json({ holds });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch holds" });
+  }
+});
+
+app.post("/api/hold/:bibId", async (req, res) => {
+  const { bibId } = req.params;
+  try {
+    const result = await placeHold(bibId);
+    res.json(result);
+  } catch (error) {
+    console.error("Error placing hold:", error);
+    res.status(500).json({ success: false, message: "Failed to place hold" });
+  }
+});
+
+app.delete("/api/hold/:holdId", async (req, res) => {
+  const { holdId } = req.params;
+  const { metadataId } = req.body;
+  try {
+    const result = await cancelHold(holdId, metadataId);
+    res.json(result);
+  } catch (error) {
+    console.error("Error cancelling hold:", error);
+    res.status(500).json({ success: false, message: "Failed to cancel hold" });
+  }
+});
+
+app.post("/api/add-isbn", async (req, res) => {
+  const { isbn } = req.body;
+  if (!isbn) {
+    res.status(400).json({ error: "ISBN required" });
+    return;
+  }
+
+  // Look up on Open Library (free API, no key needed)
+  const openLibUrl = `https://openlibrary.org/api/books?bibkeys=ISBN:${isbn}&format=json&jscmd=data`;
+  const openLibRes = await fetch(openLibUrl);
+  const openLibData = await openLibRes.json();
+  const bookData = openLibData[`ISBN:${isbn}`];
+
+  if (!bookData) {
+    res.status(404).json({ error: "Book not found" });
+    return;
+  }
+
+  const bookId = `manual-${isbn}-${Date.now()}`;
+  const title = bookData.title || "Unknown Title";
+  const author = bookData.authors?.[0]?.name || "Unknown Author";
+
+  addBook({ bookId, title, author, isbn13: isbn.length === 13 ? isbn : undefined, isbn: isbn.length === 10 ? isbn : undefined });
+
+  // Check library availability
+  const libraryResult = await searchLibrary(isbn);
+  if (libraryResult) {
+    updateLibraryData(
+      bookId,
+      libraryResult.status,
+      libraryResult.availableCopies,
+      libraryResult.totalCopies,
+      libraryResult.heldCopies,
+      libraryResult.format,
+      libraryResult.catalogUrl,
+      libraryResult.squirrelHillAvailable
+    );
+  }
+
+  res.json({ success: true, bookId, title, author });
+});
+
+app.delete("/api/book/:bookId", (req, res) => {
+  const { bookId } = req.params;
+  deleteBook(bookId);
+  res.json({ success: true });
+});
+
+app.post("/api/pin/:bookId", (req, res) => {
+  const { bookId } = req.params;
+  const pinned = togglePin(bookId);
+  res.json({ success: true, pinned });
 });
 
 app.post("/api/refresh/:bookId", async (req, res) => {
@@ -201,6 +292,70 @@ function getHTML(): string {
     }
     .refresh-btn:hover { background: #0f3460; color: #fff; }
     .refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .hold-btn {
+      background: #166534;
+      border: none;
+      color: #4ade80;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.85em;
+      margin-left: 8px;
+    }
+    .hold-btn:hover { background: #15803d; color: #fff; }
+    .hold-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .hold-btn.success { background: #0f766e; color: #5eead4; }
+    .hold-btn.error { background: #7f1d1d; color: #f87171; }
+    .delete-btn {
+      background: transparent;
+      border: none;
+      color: #666;
+      padding: 4px 8px;
+      cursor: pointer;
+      font-size: 1em;
+      margin-left: 4px;
+    }
+    .delete-btn:hover { color: #f87171; }
+    .pin-btn {
+      background: transparent;
+      border: none;
+      color: #666;
+      padding: 4px 8px;
+      cursor: pointer;
+      font-size: 1em;
+      margin-left: 4px;
+    }
+    .pin-btn:hover { color: #fbbf24; }
+    .pin-btn.pinned { color: #fbbf24; }
+
+    .add-book-form {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      align-items: center;
+    }
+    .add-book-form input {
+      padding: 8px 12px;
+      border: 1px solid #374151;
+      border-radius: 6px;
+      background: #16213e;
+      color: #eee;
+      font-size: 1em;
+      width: 200px;
+    }
+    .add-book-form input:focus { outline: none; border-color: #4ade80; }
+    .add-book-form button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      background: #166534;
+      color: #4ade80;
+      cursor: pointer;
+      font-size: 1em;
+    }
+    .add-book-form button:hover { background: #15803d; }
+    .add-book-form button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .add-book-form .status { color: #888; font-size: 0.9em; }
 
     .loading { text-align: center; padding: 40px; color: #888; }
     .commands { background: #16213e; padding: 16px; border-radius: 8px; margin-top: 20px; font-size: 0.9em; }
@@ -209,7 +364,7 @@ function getHTML(): string {
 </head>
 <body>
   <h1>Library Availability Checker</h1>
-  <p class="subtitle">Goodreads "Want to Read" + Carnegie Library of Pittsburgh</p>
+  <p class="subtitle">Goodreads "Want to Read" + Carnegie Library of Pittsburgh | <a href="/holds" style="color: #60a5fa;">My Holds</a></p>
 
   <div id="app"><div class="loading">Loading...</div></div>
 
@@ -220,6 +375,7 @@ function getHTML(): string {
     let currentFilter = 'all';
     let currentSort = 'date';
     let currentGenre = null;
+    let currentCulture = null;
 
     async function loadBooks() {
       const res = await fetch('/api/books');
@@ -237,6 +393,9 @@ function getHTML(): string {
           const bookGenres = b.genres ? JSON.parse(b.genres) : [];
           return bookGenres.includes(currentGenre);
         });
+      }
+      if (currentCulture) {
+        filtered = filtered.filter(b => b.culture === currentCulture);
       }
       filtered = sortBooks(filtered, currentSort);
 
@@ -266,6 +425,8 @@ function getHTML(): string {
 
         <div class="filters">
           <button class="filter-btn \${currentFilter === 'all' ? 'active' : ''}" onclick="setFilter('all')">All</button>
+          <button class="filter-btn \${currentFilter === 'physical' ? 'active' : ''}" onclick="setFilter('physical')">Physical</button>
+          <button class="filter-btn \${currentFilter === 'pinned' ? 'active' : ''}" onclick="setFilter('pinned')">Pinned</button>
           <button class="filter-btn \${currentFilter === 'available' ? 'active' : ''}" onclick="setFilter('available')">Available</button>
           <button class="filter-btn \${currentFilter === 'squirrel-hill' ? 'active' : ''}" onclick="setFilter('squirrel-hill')">Squirrel Hill</button>
           <button class="filter-btn \${currentFilter === 'unavailable' ? 'active' : ''}" onclick="setFilter('unavailable')">Checked Out</button>
@@ -275,6 +436,13 @@ function getHTML(): string {
           <button class="filter-btn \${currentSort === 'date' ? 'active' : ''}" onclick="setSort('date')">By Date</button>
           <button class="filter-btn \${currentSort === 'popularity' ? 'active' : ''}" onclick="setSort('popularity')">By Popularity</button>
           <button class="filter-btn \${currentSort === 'rating' ? 'active' : ''}" onclick="setSort('rating')">By Rating</button>
+          <button class="filter-btn \${currentSort === 'copies' ? 'active' : ''}" onclick="setSort('copies')">By Copies</button>
+        </div>
+
+        <div class="add-book-form">
+          <input type="text" id="isbn-input" placeholder="Enter ISBN..." />
+          <button onclick="addByISBN()">Add Book</button>
+          <span id="add-status" class="status"></span>
         </div>
 
         \${genres.length > 0 ? \`
@@ -285,6 +453,13 @@ function getHTML(): string {
           \`).join('')}
         </div>
         \` : ''}
+
+        <div class="genre-filters">
+          <button class="genre-btn \${!currentCulture ? 'active' : ''}" onclick="setCulture(null)">All Cultures</button>
+          \${getCultureCounts().map(c => \`
+            <button class="genre-btn \${currentCulture === c.culture ? 'active' : ''}" onclick="setCulture('\${c.culture}')">\${c.culture}<span class="count">(\${c.count})</span></button>
+          \`).join('')}
+        </div>
 
         <div class="book-list">
           \${filtered.map(renderBook).join('')}
@@ -300,12 +475,18 @@ function getHTML(): string {
       \`;
     }
 
+    function isEbook(book) {
+      return book.libraryFormat && (book.libraryFormat.toLowerCase().includes('ebook') || book.libraryFormat.toLowerCase().includes('e-book'));
+    }
+
     function filterBooks(books, filter) {
       switch (filter) {
-        case 'available': return books.filter(b => b.libraryStatus === 'AVAILABLE');
-        case 'squirrel-hill': return books.filter(b => b.squirrelHillAvailable);
-        case 'unavailable': return books.filter(b => b.libraryStatus === 'UNAVAILABLE');
-        case 'not-found': return books.filter(b => b.libraryStatus === 'NOT_FOUND');
+        case 'physical': return books.filter(b => b.libraryStatus && b.libraryStatus !== 'NOT_FOUND' && !isEbook(b));
+        case 'pinned': return books.filter(b => b.pinned);
+        case 'available': return books.filter(b => b.libraryStatus === 'AVAILABLE' && !isEbook(b));
+        case 'squirrel-hill': return books.filter(b => b.squirrelHillAvailable && !isEbook(b));
+        case 'unavailable': return books.filter(b => b.libraryStatus === 'UNAVAILABLE' && !isEbook(b));
+        case 'not-found': return books.filter(b => b.libraryStatus === 'NOT_FOUND' || isEbook(b));
         case 'unchecked': return books.filter(b => !b.libraryStatus);
         default: return books;
       }
@@ -317,6 +498,8 @@ function getHTML(): string {
           return [...books].sort((a, b) => (b.numRatings || 0) - (a.numRatings || 0));
         case 'rating':
           return [...books].sort((a, b) => (b.avgRating || 0) - (a.avgRating || 0));
+        case 'copies':
+          return [...books].sort((a, b) => (b.totalCopies || 0) - (a.totalCopies || 0));
         default:
           return [...books].sort((a, b) => (b.dateAdded || '').localeCompare(a.dateAdded || ''));
       }
@@ -325,6 +508,67 @@ function getHTML(): string {
     function setFilter(f) { currentFilter = f; render(); }
     function setSort(s) { currentSort = s; render(); }
     function setGenre(g) { currentGenre = g; render(); }
+    function setCulture(c) { currentCulture = c; render(); }
+
+    function getCultureCounts() {
+      const counts = {};
+      for (const book of allBooks) {
+        if (book.culture) {
+          counts[book.culture] = (counts[book.culture] || 0) + 1;
+        }
+      }
+      return Object.entries(counts)
+        .map(([culture, count]) => ({ culture, count }))
+        .sort((a, b) => b.count - a.count);
+    }
+
+    async function addByISBN() {
+      const input = document.getElementById('isbn-input');
+      const status = document.getElementById('add-status');
+      const isbn = input.value.trim().replace(/-/g, '');
+      if (!isbn) return;
+
+      status.textContent = 'Looking up...';
+      try {
+        const res = await fetch('/api/add-isbn', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isbn })
+        });
+        const data = await res.json();
+        if (data.success) {
+          status.textContent = 'Added: ' + data.title;
+          input.value = '';
+          loadBooks();
+        } else {
+          status.textContent = data.error || 'Not found';
+        }
+      } catch (e) {
+        status.textContent = 'Error adding book';
+      }
+    }
+
+    async function deleteBookById(bookId) {
+      try {
+        await fetch('/api/book/' + encodeURIComponent(bookId), { method: 'DELETE' });
+        allBooks = allBooks.filter(b => b.bookId !== bookId);
+        render();
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function togglePinBook(bookId) {
+      try {
+        const res = await fetch('/api/pin/' + encodeURIComponent(bookId), { method: 'POST' });
+        const data = await res.json();
+        const idx = allBooks.findIndex(b => b.bookId === bookId);
+        if (idx >= 0) allBooks[idx].pinned = data.pinned;
+        render();
+      } catch (e) {
+        console.error(e);
+      }
+    }
 
     async function refreshBook(bookId) {
       const btn = event.target;
@@ -343,6 +587,37 @@ function getHTML(): string {
       }
     }
 
+    async function holdBook(bibId) {
+      const btn = event.target;
+      btn.disabled = true;
+      btn.textContent = '...';
+      try {
+        const res = await fetch('/api/hold/' + bibId, { method: 'POST' });
+        const result = await res.json();
+        if (result.success) {
+          btn.textContent = '✓ Held';
+          btn.classList.add('success');
+        } else {
+          btn.textContent = result.message.substring(0, 20);
+          btn.classList.add('error');
+          setTimeout(() => {
+            btn.textContent = 'Hold';
+            btn.classList.remove('error');
+            btn.disabled = false;
+          }, 3000);
+        }
+      } catch (e) {
+        console.error(e);
+        btn.textContent = 'Error';
+        btn.classList.add('error');
+        setTimeout(() => {
+          btn.textContent = 'Hold';
+          btn.classList.remove('error');
+          btn.disabled = false;
+        }, 3000);
+      }
+    }
+
     function renderBook(book) {
       let statusClass = 'unchecked';
       let statusText = 'Unchecked';
@@ -350,7 +625,12 @@ function getHTML(): string {
       let holdsText = '';
       let catalogLink = '';
 
-      if (book.libraryStatus === 'AVAILABLE') {
+      const isEbook = book.libraryFormat && (book.libraryFormat.toLowerCase().includes('ebook') || book.libraryFormat.toLowerCase().includes('e-book'));
+
+      if (isEbook) {
+        statusClass = 'not-found';
+        statusText = 'eBook Only';
+      } else if (book.libraryStatus === 'AVAILABLE') {
         statusClass = 'available';
         statusText = 'Available';
         copiesText = \`\${book.availableCopies} / \${book.totalCopies} copies\`;
@@ -367,10 +647,17 @@ function getHTML(): string {
         holdsText = \`\${book.heldCopies} hold\${book.heldCopies > 1 ? 's' : ''}\`;
       }
       const squirrelHillText = book.squirrelHillAvailable ? '@ Squirrel Hill' : '';
+      let holdButton = '';
       if (book.catalogUrl) {
         catalogLink = \`<a href="\${book.catalogUrl}" target="_blank" class="catalog-link">View in catalog</a>\`;
+        const bibId = book.catalogUrl.split('/').pop();
+        if (bibId && !isEbook) {
+          holdButton = \`<button class="hold-btn" onclick="holdBook('\${bibId}')">Hold</button>\`;
+        }
       }
       const goodreadsLink = \`<a href="https://www.goodreads.com/book/show/\${book.bookId}" target="_blank" class="catalog-link">Goodreads</a>\`;
+      const isbn = book.isbn13 || book.isbn;
+      const thriftbooksLink = isbn ? \`<a href="https://www.thriftbooks.com/browse/?b.search=\${isbn}" target="_blank" class="catalog-link">ThriftBooks</a>\` : '';
 
       const dateAdded = book.dateAdded ? new Date(book.dateAdded).toLocaleDateString() : '';
       const ratingInfo = book.avgRating ? \`\${book.avgRating.toFixed(2)} avg\` : '';
@@ -401,7 +688,11 @@ function getHTML(): string {
             \${squirrelHillText ? \`<div class="squirrel-hill">\${squirrelHillText}</div>\` : ''}
             \${catalogLink}
             \${goodreadsLink}
+            \${thriftbooksLink}
+            \${holdButton}
+            <button class="pin-btn \${book.pinned ? 'pinned' : ''}" onclick="togglePinBook('\${book.bookId}')" title="Pin">📌</button>
             <button class="refresh-btn" onclick="refreshBook('\${book.bookId}')">↻</button>
+            <button class="delete-btn" onclick="deleteBookById('\${book.bookId}')" title="Remove">×</button>
           </div>
         </div>
       \`;
@@ -412,6 +703,151 @@ function getHTML(): string {
     }
 
     loadBooks();
+  </script>
+</body>
+</html>`;
+}
+
+function getHoldsHTML(): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Holds</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+      padding: 20px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    h1 { margin-bottom: 10px; color: #fff; }
+    .subtitle { color: #888; margin-bottom: 20px; }
+    .nav { margin-bottom: 20px; }
+    .nav a { color: #60a5fa; text-decoration: none; }
+    .nav a:hover { text-decoration: underline; }
+    .loading { text-align: center; padding: 40px; color: #888; }
+    .holds-list { display: flex; flex-direction: column; gap: 12px; }
+    .hold {
+      background: #16213e;
+      border-radius: 8px;
+      padding: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .hold-info { flex: 1; }
+    .hold-title { font-weight: 600; font-size: 1.1em; margin-bottom: 4px; }
+    .hold-author { color: #888; font-size: 0.9em; margin-bottom: 4px; }
+    .hold-format { color: #666; font-size: 0.85em; }
+    .hold-status {
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 0.85em;
+      font-weight: 500;
+    }
+    .hold-status.in_transit { background: #854d0e; color: #fbbf24; }
+    .hold-status.not_yet_available { background: #374151; color: #9ca3af; }
+    .hold-status.ready { background: #166534; color: #4ade80; }
+    .error { color: #f87171; text-align: center; padding: 20px; }
+    .hold-actions { display: flex; align-items: center; gap: 12px; }
+    .cancel-btn {
+      background: #7f1d1d;
+      border: none;
+      color: #f87171;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.85em;
+    }
+    .cancel-btn:hover { background: #991b1b; color: #fff; }
+    .cancel-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <div class="nav"><a href="/">← Back to Books</a></div>
+  <h1>My Holds</h1>
+  <p class="subtitle">Carnegie Library of Pittsburgh</p>
+
+  <div id="app"><div class="loading">Loading holds...</div></div>
+
+  <script>
+    async function loadHolds() {
+      try {
+        const res = await fetch('/api/holds');
+        const data = await res.json();
+
+        if (data.error) {
+          document.getElementById('app').innerHTML = '<div class="error">Failed to load holds</div>';
+          return;
+        }
+
+        const holds = data.holds || [];
+        if (holds.length === 0) {
+          document.getElementById('app').innerHTML = '<div class="loading">No holds found</div>';
+          return;
+        }
+
+        document.getElementById('app').innerHTML = \`
+          <div class="holds-list">
+            \${holds.map(h => \`
+              <div class="hold" id="hold-\${h.holdId}">
+                <div class="hold-info">
+                  <div class="hold-title">\${escapeHtml(h.title)}</div>
+                  <div class="hold-author">by \${escapeHtml(h.author)}</div>
+                  <div class="hold-format">\${h.format} \${h.year}</div>
+                </div>
+                <div class="hold-actions">
+                  <div class="hold-status \${h.status}">\${h.statusText}</div>
+                  <button class="cancel-btn" onclick="cancelHold('\${h.holdId}', '\${h.bibId}')">Cancel</button>
+                </div>
+              </div>
+            \`).join('')}
+          </div>
+        \`;
+      } catch (e) {
+        document.getElementById('app').innerHTML = '<div class="error">Error loading holds</div>';
+      }
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    async function cancelHold(holdId, metadataId) {
+      const btn = event.target;
+      btn.disabled = true;
+      btn.textContent = '...';
+      try {
+        const res = await fetch('/api/hold/' + holdId, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ metadataId })
+        });
+        const result = await res.json();
+        if (result.success) {
+          document.getElementById('hold-' + holdId).remove();
+        } else {
+          btn.textContent = result.message.substring(0, 15);
+          setTimeout(() => {
+            btn.textContent = 'Cancel';
+            btn.disabled = false;
+          }, 3000);
+        }
+      } catch (e) {
+        btn.textContent = 'Error';
+        setTimeout(() => {
+          btn.textContent = 'Cancel';
+          btn.disabled = false;
+        }, 3000);
+      }
+    }
+
+    loadHolds();
   </script>
 </body>
 </html>`;
