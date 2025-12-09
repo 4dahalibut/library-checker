@@ -61,6 +61,13 @@ try {
   // Column already exists
 }
 
+// Add publish_year column if it doesn't exist (migration)
+try {
+  db.exec(`ALTER TABLE books ADD COLUMN publish_year INTEGER`);
+} catch {
+  // Column already exists
+}
+
 export interface Book {
   bookId: string;
   title: string;
@@ -81,6 +88,7 @@ export interface Book {
   squirrelHillAvailable: boolean;
   culture: string | null;
   pinned: boolean;
+  publishYear: number | null;
 }
 
 export function importGoodreadsCSV(filepath: string): number {
@@ -123,7 +131,8 @@ export function getAllBooks(): Book[] {
       library_checked_at as libraryCheckedAt,
       squirrel_hill_available as squirrelHillAvailable,
       culture,
-      pinned
+      pinned,
+      publish_year as publishYear
     FROM books
     ORDER BY date_added DESC
   `).all() as Book[];
@@ -212,7 +221,8 @@ export function getBooksNeedingCulture(limit: number): Book[] {
       library_format as libraryFormat, catalog_url as catalogUrl,
       library_checked_at as libraryCheckedAt,
       squirrel_hill_available as squirrelHillAvailable,
-      culture
+      culture,
+      publish_year as publishYear
     FROM books
     WHERE culture IS NULL
     ORDER BY date_added DESC

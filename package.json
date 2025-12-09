@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "build": "tsc",
+    "dev": "concurrently \"tsx watch src/server.ts\" \"vite\"",
+    "build": "vite build && tsc",
     "start": "node dist/server.js",
     "import": "tsx src/import-csv.ts",
     "refresh:library": "tsx src/refresh-library.ts",
@@ -22,7 +22,9 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^4.17.21",
     "@types/node": "^20.10.0",
+    "concurrently": "^9.2.1",
     "tsx": "^4.6.2",
-    "typescript": "^5.3.2"
+    "typescript": "^5.3.2",
+    "vite": "^7.2.7"
   }
 }
