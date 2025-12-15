@@ -1,6 +1,6 @@
 import express from "express";
-import { getAllBooks, getStats, getAllGenres, updateLibraryData, addBook, deleteBook, togglePin, db } from "./db.js";
-import { searchLibrary } from "./library.js";
+import { getAllBooks, getStats, getAllGenres, updateLibraryData, addBook, deleteBook, togglePin, updateNotes, db } from "./db.js";
+import { searchLibrary, searchEditions } from "./library.js";
 import { getHolds, placeHold, cancelHold } from "./holds.js";
 
 const app = express();
@@ -35,6 +35,21 @@ app.post("/api/hold/:bibId", async (req, res) => {
   }
 });
 
+app.get("/api/editions", async (req, res) => {
+  const { q } = req.query;
+  if (!q || typeof q !== "string") {
+    res.status(400).json({ error: "Query parameter 'q' required" });
+    return;
+  }
+  try {
+    const editions = await searchEditions(q);
+    res.json({ editions });
+  } catch (error) {
+    console.error("Error searching editions:", error);
+    res.status(500).json({ error: "Failed to search editions" });
+  }
+});
+
 app.delete("/api/hold/:holdId", async (req, res) => {
   const { holdId } = req.params;
   const { metadataId } = req.body;
@@ -47,32 +62,73 @@ app.delete("/api/hold/:holdId", async (req, res) => {
   }
 });
 
-app.post("/api/add-isbn", async (req, res) => {
-  const { isbn } = req.body;
-  if (!isbn) {
-    res.status(400).json({ error: "ISBN required" });
+app.post("/api/add-book", async (req, res) => {
+  const { isbn, keyword } = req.body;
+  if (!isbn && !keyword) {
+    res.status(400).json({ error: "ISBN or keyword required" });
     return;
   }
 
-  // Look up on Open Library (free API, no key needed)
-  const openLibUrl = `https://openlibrary.org/api/books?bibkeys=ISBN:${isbn}&format=json&jscmd=data`;
-  const openLibRes = await fetch(openLibUrl);
-  const openLibData = await openLibRes.json();
-  const bookData = openLibData[`ISBN:${isbn}`];
+  let title: string;
+  let author: string;
+  let bookIsbn: string | undefined;
+  let bookIsbn13: string | undefined;
+  let publishYear: number | undefined;
 
-  if (!bookData) {
-    res.status(404).json({ error: "Book not found" });
-    return;
+  if (isbn) {
+    // Look up by ISBN on Open Library
+    const openLibUrl = `https://openlibrary.org/api/books?bibkeys=ISBN:${isbn}&format=json&jscmd=data`;
+    const openLibRes = await fetch(openLibUrl);
+    const openLibData = await openLibRes.json();
+    const bookData = openLibData[`ISBN:${isbn}`];
+
+    if (!bookData) {
+      res.status(404).json({ error: "Book not found" });
+      return;
+    }
+
+    title = bookData.title || "Unknown Title";
+    author = bookData.authors?.[0]?.name || "Unknown Author";
+    bookIsbn13 = isbn.length === 13 ? isbn : undefined;
+    bookIsbn = isbn.length === 10 ? isbn : undefined;
+    // Extract year from publish_date (could be "1873-77", "2014", etc.)
+    const yearMatch = bookData.publish_date?.match(/\d{4}/);
+    publishYear = yearMatch ? parseInt(yearMatch[0]) : undefined;
+  } else {
+    // Search by keyword on Open Library
+    const searchUrl = `https://openlibrary.org/search.json?q=${encodeURIComponent(keyword)}&limit=1`;
+    const searchRes = await fetch(searchUrl);
+    const searchData = await searchRes.json();
+
+    if (!searchData.docs || searchData.docs.length === 0) {
+      res.status(404).json({ error: "Book not found" });
+      return;
+    }
+
+    const doc = searchData.docs[0];
+    title = doc.title || "Unknown Title";
+    author = doc.author_name?.[0] || "Unknown Author";
+    bookIsbn13 = doc.isbn?.find((i: string) => i.length === 13);
+    bookIsbn = doc.isbn?.find((i: string) => i.length === 10);
+    publishYear = doc.first_publish_year;
   }
 
-  const bookId = `manual-${isbn}-${Date.now()}`;
-  const title = bookData.title || "Unknown Title";
-  const author = bookData.authors?.[0]?.name || "Unknown Author";
+  const bookId = `manual-${isbn || keyword.replace(/\s+/g, "-")}-${Date.now()}`;
 
-  addBook({ bookId, title, author, isbn13: isbn.length === 13 ? isbn : undefined, isbn: isbn.length === 10 ? isbn : undefined });
+  addBook({ bookId, title, author, isbn13: bookIsbn13, isbn: bookIsbn, publishYear });
 
-  // Check library availability
-  const libraryResult = await searchLibrary(isbn);
+  // Check library availability - try multiple search strategies
+  const queries = [bookIsbn13, bookIsbn, `${title} ${author}`, title].filter(Boolean) as string[];
+  let libraryResult = null;
+  for (const query of queries) {
+    console.log(`Searching library for "${title}" with query: ${query}`);
+    libraryResult = await searchLibrary(query);
+    if (libraryResult) {
+      console.log(`Found with query: ${query}`);
+      break;
+    }
+  }
+
   if (libraryResult) {
     updateLibraryData(
       bookId,
@@ -84,6 +140,8 @@ app.post("/api/add-isbn", async (req, res) => {
       libraryResult.catalogUrl,
       libraryResult.squirrelHillAvailable
     );
+  } else {
+    updateLibraryData(bookId, "NOT_FOUND", null, null, null, null, null, false);
   }
 
   res.json({ success: true, bookId, title, author });
@@ -101,6 +159,13 @@ app.post("/api/pin/:bookId", (req, res) => {
   res.json({ success: true, pinned });
 });
 
+app.post("/api/notes/:bookId", (req, res) => {
+  const { bookId } = req.params;
+  const { notes } = req.body;
+  updateNotes(bookId, notes);
+  res.json({ success: true });
+});
+
 app.post("/api/refresh/:bookId", async (req, res) => {
   const { bookId } = req.params;
   const books = getAllBooks();
@@ -115,6 +180,7 @@ app.post("/api/refresh/:bookId", async (req, res) => {
     book.isbn13,
     book.isbn,
     `${book.title} ${book.author}`,
+    book.title,
   ].filter(Boolean) as string[];
 
   let result = null;

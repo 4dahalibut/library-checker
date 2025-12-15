@@ -16,6 +16,10 @@ export interface Hold {
   statusText: string;
   bibId: string;
   holdId: string;
+  queuePosition?: number;
+  totalHolds?: number;
+  dueDate?: string;
+  pickupBy?: string;
 }
 
 interface SessionInfo {
@@ -104,6 +108,9 @@ interface HoldsPageData {
       metadataId: string;
       status: string;
       bibTitle: string;
+      holdsPosition: number;
+      holdText: string;
+      pickupByDate?: string;
     }>;
     bibs: Record<string, {
       briefInfo: {
@@ -116,7 +123,28 @@ interface HoldsPageData {
   };
 }
 
-function parseHolds(html: string): Hold[] {
+interface AvailabilityData {
+  entities: {
+    availabilities: Record<string, {
+      heldCopies: number;
+      totalCopies: number;
+    }>;
+    bibItems: Record<string, {
+      dueDate?: string;
+      availability: {
+        libraryStatus: string;
+      };
+    }>;
+  };
+}
+
+async function fetchAvailability(bibId: string): Promise<AvailabilityData | null> {
+  const response = await fetch(`${GATEWAY_URL}/bibs/${bibId}/availability?locale=en-US`);
+  if (!response.ok) return null;
+  return response.json();
+}
+
+async function parseHolds(html: string): Promise<Hold[]> {
   // Extract the JSON data from <script type="application/json" data-iso-key="_0">
   const jsonMatch = html.match(/<script[^>]*type="application\/json"[^>]*data-iso-key="_0"[^>]*>([\s\S]*?)<\/script>/);
   if (!jsonMatch) return [];
@@ -140,7 +168,51 @@ function parseHolds(html: string): Hold[] {
     let normalizedStatus: Hold["status"] = "unknown";
     if (status === "in_transit") normalizedStatus = "in_transit";
     else if (status === "not_yet_available") normalizedStatus = "not_yet_available";
-    else if (status === "ready" || status === "available") normalizedStatus = "ready";
+    else if (status === "ready" || status === "available" || status === "ready_for_pickup") normalizedStatus = "ready";
+
+    let statusText = {
+      in_transit: "In Transit",
+      not_yet_available: "Not Ready",
+      ready: "Ready for Pickup",
+      unknown: status,
+    }[normalizedStatus];
+
+    let queuePosition: number | undefined;
+    let totalHolds: number | undefined;
+    let dueDate: string | undefined;
+    let pickupBy: string | undefined;
+
+    if (hold.pickupByDate) {
+      pickupBy = hold.pickupByDate;
+    }
+
+    // For not-yet-available holds, fetch availability to get queue info
+    if (normalizedStatus === "not_yet_available") {
+      const availability = await fetchAvailability(hold.metadataId);
+      if (availability) {
+        const avail = Object.values(availability.entities.availabilities)[0];
+        const item = Object.values(availability.entities.bibItems)[0];
+
+        totalHolds = avail?.heldCopies;
+        dueDate = item?.dueDate;
+
+        // Build a more informative status
+        const parts: string[] = [];
+        if (totalHolds && totalHolds > 1) {
+          parts.push(`${totalHolds} holds`);
+        }
+        if (avail?.totalCopies) {
+          parts.push(`${avail.totalCopies} ${avail.totalCopies === 1 ? "copy" : "copies"}`);
+        }
+        if (dueDate) {
+          const due = new Date(dueDate);
+          parts.push(`due ${due.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`);
+        }
+        if (parts.length > 0) {
+          statusText = parts.join(", ");
+        }
+      }
+    }
 
     holds.push({
       title: briefInfo?.title || hold.bibTitle || "Unknown",
@@ -148,9 +220,13 @@ function parseHolds(html: string): Hold[] {
       format: briefInfo?.format || "Book",
       year: briefInfo?.publicationDate || "",
       status: normalizedStatus,
-      statusText: normalizedStatus === "in_transit" ? "In Transit" : normalizedStatus === "not_yet_available" ? "Not Ready" : normalizedStatus === "ready" ? "Ready for Pickup" : status,
+      statusText,
       bibId: hold.metadataId,
       holdId: hold.holdsId,
+      queuePosition,
+      totalHolds,
+      dueDate,
+      pickupBy,
     });
   }
 

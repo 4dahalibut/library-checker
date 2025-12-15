@@ -68,6 +68,13 @@ try {
   // Column already exists
 }
 
+// Add notes column if it doesn't exist (migration)
+try {
+  db.exec(`ALTER TABLE books ADD COLUMN notes TEXT`);
+} catch {
+  // Column already exists
+}
+
 export interface Book {
   bookId: string;
   title: string;
@@ -89,6 +96,7 @@ export interface Book {
   culture: string | null;
   pinned: boolean;
   publishYear: number | null;
+  notes: string | null;
 }
 
 export function importGoodreadsCSV(filepath: string): number {
@@ -132,7 +140,8 @@ export function getAllBooks(): Book[] {
       squirrel_hill_available as squirrelHillAvailable,
       culture,
       pinned,
-      publish_year as publishYear
+      publish_year as publishYear,
+      notes
     FROM books
     ORDER BY date_added DESC
   `).all() as Book[];
@@ -211,6 +220,10 @@ export function updateCulture(bookId: string, culture: string): void {
   db.prepare(`UPDATE books SET culture = ? WHERE book_id = ?`).run(culture, bookId);
 }
 
+export function updateNotes(bookId: string, notes: string): void {
+  db.prepare(`UPDATE books SET notes = ? WHERE book_id = ?`).run(notes || null, bookId);
+}
+
 export function getBooksNeedingCulture(limit: number): Book[] {
   const rows = db.prepare(`
     SELECT
@@ -270,11 +283,14 @@ export function addBook(book: {
   author: string;
   isbn?: string;
   isbn13?: string;
+  publishYear?: number;
 }): void {
+  const now = new Date();
+  const dateAdded = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')}`;
   db.prepare(`
-    INSERT OR IGNORE INTO books (book_id, title, author, isbn, isbn13, date_added)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(book.bookId, book.title, book.author, book.isbn || null, book.isbn13 || null, new Date().toISOString());
+    INSERT OR IGNORE INTO books (book_id, title, author, isbn, isbn13, date_added, publish_year)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(book.bookId, book.title, book.author, book.isbn || null, book.isbn13 || null, dateAdded, book.publishYear || null);
 }
 
 export function deleteBook(bookId: string): void {

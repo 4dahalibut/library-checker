@@ -9,7 +9,9 @@
     "import": "tsx src/import-csv.ts",
     "refresh:library": "tsx src/refresh-library.ts",
     "refresh:ratings": "tsx src/refresh-ratings.ts",
-    "refresh:genres": "tsx src/refresh-genres.ts"
+    "refresh:genres": "tsx src/refresh-genres.ts",
+    "refresh:culture": "tsx src/refresh-culture.ts",
+    "refresh:publish-years": "tsx src/refresh-publish-years.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",

@@ -1,3 +1,19 @@
+interface Edition {
+  bibId: string;
+  title: string;
+  subtitle?: string;
+  author: string;
+  format: string;
+  year?: string;
+  series?: string;
+  translator?: string;
+  status: "AVAILABLE" | "UNAVAILABLE";
+  availableCopies: number;
+  totalCopies: number;
+  heldCopies: number;
+  branches: { name: string; status: string; dueDate?: string }[];
+}
+
 interface Book {
   bookId: string;
   title: string;
@@ -19,6 +35,7 @@ interface Book {
   culture: string | null;
   pinned: boolean;
   publishYear: number | null;
+  notes: string | null;
 }
 
 interface Stats {
@@ -41,6 +58,7 @@ let currentFilter = "all";
 let currentSort = "date";
 let currentGenre: string | null = null;
 let currentCulture: string | null = null;
+let searchQuery = "";
 
 async function loadBooks() {
   const res = await fetch("/api/books");
@@ -53,6 +71,12 @@ async function loadBooks() {
 
 function render() {
   let filtered = filterBooks(allBooks, currentFilter);
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    filtered = filtered.filter(
+      (b) => b.title.toLowerCase().includes(q) || (b.author && b.author.toLowerCase().includes(q))
+    );
+  }
   if (currentGenre) {
     filtered = filtered.filter((b) => {
       const bookGenres = b.genres ? JSON.parse(b.genres) : [];
@@ -90,15 +114,19 @@ function render() {
     ${["date", "popularity", "rating", "copies"]
       .map((s) => (currentSort === s ? `[<b>${s}</b>]` : `<a href="#" onclick="setSort('${s}'); return false;">${s}</a>`))
       .join(" | ")}
+    <br><br>
+    <b>Search:</b>
+    <input type="text" id="search-input" size="30" placeholder="Search by title or author..." value="${escapeHtml(searchQuery)}" oninput="handleSearch(this.value)">
+    ${searchQuery ? `<a href="#" onclick="handleSearch(''); return false;">[clear]</a>` : ""}
     </font>
     </center>
 
     <hr>
 
     <center>
-    <form onsubmit="addByISBN(); return false;">
-      <font size="2">Add book by ISBN:</font>
-      <input type="text" id="isbn-input" size="20">
+    <form onsubmit="addBook(); return false;">
+      <font size="2">Add book (ISBN or keyword):</font>
+      <input type="text" id="add-input" size="25">
       <input type="submit" value="Add">
       <font size="2" id="add-status"></font>
     </form>
@@ -153,6 +181,7 @@ function render() {
       <tr bgcolor="#cccccc">
         <th align="left"><font face="Times New Roman, serif">Title</font></th>
         <th align="left"><font face="Times New Roman, serif">Author</font></th>
+        <th align="center"><font face="Times New Roman, serif">Year</font></th>
         <th align="center"><font face="Times New Roman, serif">Status</font></th>
         <th align="center"><font face="Times New Roman, serif">Info</font></th>
         <th align="center"><font face="Times New Roman, serif">Links</font></th>
@@ -238,6 +267,17 @@ function setCulture(c: string | null) {
   render();
 }
 
+function handleSearch(query: string) {
+  searchQuery = query;
+  render();
+  // Restore focus to search input after re-render
+  const input = document.getElementById("search-input") as HTMLInputElement;
+  if (input) {
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  }
+}
+
 function getCultureCounts(): { culture: string; count: number }[] {
   const counts: Record<string, number> = {};
   for (const book of allBooks) {
@@ -250,24 +290,35 @@ function getCultureCounts(): { culture: string; count: number }[] {
     .sort((a, b) => b.count - a.count);
 }
 
-async function addByISBN() {
-  const input = document.getElementById("isbn-input") as HTMLInputElement;
+async function addBook() {
+  const input = document.getElementById("add-input") as HTMLInputElement;
   const status = document.getElementById("add-status")!;
-  const isbn = input.value.trim().replace(/-/g, "");
-  if (!isbn) return;
+  const query = input.value.trim();
+  if (!query) return;
+
+  // Check if it looks like an ISBN (10 or 13 digits, possibly with hyphens)
+  const cleanedQuery = query.replace(/-/g, "");
+  const isISBN = /^\d{10}(\d{3})?$/.test(cleanedQuery);
 
   status.textContent = "Looking up...";
   try {
-    const res = await fetch("/api/add-isbn", {
+    const res = await fetch("/api/add-book", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ isbn }),
+      body: JSON.stringify(isISBN ? { isbn: cleanedQuery } : { keyword: query }),
     });
     const data = await res.json();
     if (data.success) {
       status.textContent = "Added: " + data.title;
       input.value = "";
-      loadBooks();
+      // Reset filters and scroll to top to see the new book
+      currentFilter = "all";
+      currentSort = "date";
+      currentGenre = null;
+      currentCulture = null;
+      searchQuery = "";
+      await loadBooks();
+      window.scrollTo(0, 0);
     } else {
       status.textContent = data.error || "Not found";
     }
@@ -316,25 +367,179 @@ async function refreshBook(bookId: string, event: Event) {
   }
 }
 
-async function holdBook(bibId: string, event: Event) {
+async function holdBook(title: string, author: string, event: Event) {
   const btn = event.target as HTMLInputElement;
   btn.disabled = true;
   btn.value = "...";
+
   try {
-    const res = await fetch("/api/hold/" + bibId, { method: "POST" });
-    const result = await res.json();
-    if (result.success) {
-      btn.value = "OK!";
-    } else {
-      alert(result.message);
+    // Search for all editions
+    const query = `${title} ${author}`;
+    const res = await fetch(`/api/editions?q=${encodeURIComponent(query)}`);
+    const data = await res.json();
+    const editions: Edition[] = data.editions || [];
+
+    if (editions.length === 0) {
+      alert("No editions found in library");
       btn.value = "Hold";
       btn.disabled = false;
+      return;
     }
+
+    // Show modal with editions
+    showEditionsModal(title, editions, btn);
   } catch (e) {
     console.error(e);
-    alert("Error placing hold");
+    alert("Error searching for editions");
     btn.value = "Hold";
     btn.disabled = false;
+  }
+}
+
+function showEditionsModal(bookTitle: string, editions: Edition[], holdBtn: HTMLInputElement) {
+  // Remove existing modal if any
+  const existing = document.getElementById("editions-modal");
+  if (existing) existing.remove();
+
+  const modal = document.createElement("div");
+  modal.id = "editions-modal";
+  modal.style.cssText = `
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center;
+    z-index: 1000;
+  `;
+
+  const formatBranches = (branches: Edition["branches"]) => {
+    return branches.map(b => {
+      let text = b.name;
+      if (b.status === "AVAILABLE") {
+        text += ' <font color="green">✓ Available</font>';
+      } else if (b.dueDate) {
+        const due = new Date(b.dueDate);
+        text += ` <font color="#cc9900">due ${due.toLocaleDateString("en-US", { month: "short", day: "numeric" })}</font>`;
+      } else {
+        text += ` <font color="gray">${b.status}</font>`;
+      }
+      return text;
+    }).join("<br>");
+  };
+
+  const editionRows = editions.map((ed, i) => {
+    const statusColor = ed.status === "AVAILABLE" ? "green" : "#cc9900";
+    const statusText = ed.status === "AVAILABLE"
+      ? `${ed.availableCopies} available`
+      : `Checked out${ed.heldCopies ? ` (${ed.heldCopies} holds)` : ""}`;
+
+    // Build edition description with subtitle, series, year, translator
+    let editionDesc = escapeHtml(ed.title);
+    if (ed.subtitle) {
+      editionDesc += `<br><font size="1" color="#666">${escapeHtml(ed.subtitle)}</font>`;
+    }
+    const details: string[] = [];
+    if (ed.year) details.push(ed.year);
+    if (ed.series) details.push(ed.series);
+    if (ed.translator) details.push(`trans. ${ed.translator}`);
+    if (details.length > 0) {
+      editionDesc += `<br><font size="1" color="gray">${escapeHtml(details.join(" · "))}</font>`;
+    }
+
+    return `
+      <tr${ed.status === "AVAILABLE" ? ' bgcolor="#eeffee"' : ""}>
+        <td><input type="radio" name="edition" value="${ed.bibId}" ${i === 0 ? "checked" : ""}></td>
+        <td>
+          <font size="2"><b>${editionDesc}</b></font>
+        </td>
+        <td align="center">
+          <font color="${statusColor}" size="2"><b>${statusText}</b></font><br>
+          <font size="1">${ed.totalCopies} total</font>
+        </td>
+        <td><font size="1">${formatBranches(ed.branches)}</font></td>
+      </tr>
+    `;
+  }).join("");
+
+  modal.innerHTML = `
+    <div style="background: white; padding: 20px; max-width: 800px; max-height: 80vh; overflow-y: auto; border: 2px solid black;">
+      <h3 style="margin-top: 0;">${escapeHtml(bookTitle)} - ${editions.length} edition${editions.length === 1 ? "" : "s"} found</h3>
+      <form id="edition-form">
+        <table border="1" cellpadding="5" cellspacing="0" width="100%">
+          <tr bgcolor="#cccccc">
+            <th width="30"></th>
+            <th align="left">Edition</th>
+            <th align="center">Status</th>
+            <th align="left">Branches</th>
+          </tr>
+          ${editionRows}
+        </table>
+        <br>
+        <center>
+          <input type="submit" value="Place Hold" style="font-size: 14px; padding: 5px 20px;">
+          <input type="button" value="Cancel" onclick="closeEditionsModal()" style="font-size: 14px; padding: 5px 20px;">
+        </center>
+      </form>
+    </div>
+  `;
+
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) closeEditionsModal();
+  });
+
+  const form = modal.querySelector("#edition-form") as HTMLFormElement;
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const formData = new FormData(form);
+    const bibId = formData.get("edition") as string;
+
+    const submitBtn = form.querySelector('input[type="submit"]') as HTMLInputElement;
+    submitBtn.disabled = true;
+    submitBtn.value = "Placing hold...";
+
+    try {
+      const res = await fetch("/api/hold/" + bibId, { method: "POST" });
+      const result = await res.json();
+      if (result.success) {
+        holdBtn.value = "OK!";
+        closeEditionsModal();
+      } else {
+        alert(result.message);
+        submitBtn.disabled = false;
+        submitBtn.value = "Place Hold";
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error placing hold");
+      submitBtn.disabled = false;
+      submitBtn.value = "Place Hold";
+    }
+  });
+
+  document.body.appendChild(modal);
+}
+
+function closeEditionsModal() {
+  const modal = document.getElementById("editions-modal");
+  if (modal) {
+    modal.remove();
+    // Re-enable hold buttons
+    const holdBtns = document.querySelectorAll('input[value="..."]') as NodeListOf<HTMLInputElement>;
+    holdBtns.forEach(btn => {
+      btn.value = "Hold";
+      btn.disabled = false;
+    });
+  }
+}
+
+async function saveNotes(bookId: string, notes: string) {
+  try {
+    await fetch("/api/notes/" + encodeURIComponent(bookId), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notes }),
+    });
+    const idx = allBooks.findIndex((b) => b.bookId === bookId);
+    if (idx >= 0) allBooks[idx].notes = notes;
+  } catch (e) {
+    console.error(e);
   }
 }
 
@@ -379,8 +584,11 @@ function renderBook(book: Book): string {
         <font face="Times New Roman, serif">
           ${book.pinned ? "<b>* " : ""}${escapeHtml(book.title)}${book.pinned ? "</b>" : ""}
         </font>
+        <br>
+        <input type="text" size="30" placeholder="Add notes..." value="${escapeHtml(book.notes || "")}" onchange="saveNotes('${book.bookId}', this.value)" style="font-size:10px; color:#666;">
       </td>
       <td><font face="Times New Roman, serif" size="2">${escapeHtml(book.author || "")}</font></td>
+      <td align="center"><font size="2">${book.publishYear || ""}</font></td>
       <td align="center">
         <font color="${statusColor}"><b>${statusText}</b></font>
         ${copiesText ? `<br><font size="1">${copiesText}</font>` : ""}
@@ -405,7 +613,7 @@ function renderBook(book: Book): string {
       <td align="center">
         <input type="button" value="${book.pinned ? "Unpin" : "Pin"}" onclick="togglePinBook('${book.bookId}')" style="font-size:10px">
         <input type="button" value="Refresh" onclick="refreshBook('${book.bookId}', event)" style="font-size:10px">
-        ${bibId && !ebook ? `<input type="button" value="Hold" onclick="holdBook('${bibId}', event)" style="font-size:10px">` : ""}
+        ${!ebook && book.libraryStatus && book.libraryStatus !== "NOT_FOUND" ? `<input type="button" value="Hold" onclick="holdBook('${escapeHtml(book.title.replace(/'/g, "\\\'"))}', '${escapeHtml((book.author || "").replace(/'/g, "\\\'"))}', event)" style="font-size:10px">` : ""}
         <input type="button" value="X" onclick="deleteBookById('${book.bookId}')" style="font-size:10px" title="Delete">
       </td>
     </tr>
@@ -423,11 +631,14 @@ declare global {
     setSort: typeof setSort;
     setGenre: typeof setGenre;
     setCulture: typeof setCulture;
-    addByISBN: typeof addByISBN;
+    handleSearch: typeof handleSearch;
+    addBook: typeof addBook;
     deleteBookById: typeof deleteBookById;
     togglePinBook: typeof togglePinBook;
     refreshBook: typeof refreshBook;
     holdBook: typeof holdBook;
+    saveNotes: typeof saveNotes;
+    closeEditionsModal: typeof closeEditionsModal;
   }
 }
 
@@ -435,10 +646,13 @@ window.setFilter = setFilter;
 window.setSort = setSort;
 window.setGenre = setGenre;
 window.setCulture = setCulture;
-window.addByISBN = addByISBN;
+window.handleSearch = handleSearch;
+window.addBook = addBook;
 window.deleteBookById = deleteBookById;
 window.togglePinBook = togglePinBook;
 window.refreshBook = refreshBook;
 window.holdBook = holdBook;
+window.saveNotes = saveNotes;
+window.closeEditionsModal = closeEditionsModal;
 
 loadBooks();
