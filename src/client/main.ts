@@ -605,7 +605,7 @@ function renderBook(book: Book): string {
       </td>
       <td align="center">
         <font size="2">
-          <a href="https://www.goodreads.com/book/show/${book.bookId}" target="_blank">Goodreads</a>
+          <a href="${book.bookId.startsWith("manual-") ? `https://www.goodreads.com/search?q=${isbn || encodeURIComponent(book.title)}` : `https://www.goodreads.com/book/show/${book.bookId}`}" target="_blank">Goodreads</a>
           ${book.catalogUrl ? `<br><a href="${book.catalogUrl}" target="_blank">Library</a>` : ""}
           ${isbn ? `<br><a href="https://www.thriftbooks.com/browse/?b.search=${isbn}" target="_blank">ThriftBooks</a>` : ""}
         </font>

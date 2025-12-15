@@ -6,7 +6,7 @@ import type { CacheData } from "./src/types.js";
 const cache: CacheData = JSON.parse(readFileSync("cache.json", "utf-8"));
 
 // Load Goodreads CSV to get ratings
-const csvContent = readFileSync("goodreads_library_export.csv", "utf-8");
+const csvContent = readFileSync("data/goodreads_library_export.csv", "utf-8");
 const records = parse(csvContent, { columns: true, skip_empty_lines: true }) as Record<string, string>[];
 
 // Create a map of book ID to average rating

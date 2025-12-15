@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 
-const db = new Database("library.db");
+const db = new Database("data/library.db");
 
 async function getBio(author: string): Promise<string> {
   const name = author.split(",")[0].trim().replace(/ /g, "_");

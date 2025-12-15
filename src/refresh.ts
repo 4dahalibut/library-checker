@@ -3,7 +3,7 @@ import { searchByISBN, searchByTitleAuthor } from "./library.js";
 import { loadCache, saveCache, getCachedBook } from "./cache.js";
 import type { BookWithAvailability, CacheData } from "./types.js";
 
-const CSV_FILE = process.argv[2] || "goodreads_library_export.csv";
+const CSV_FILE = process.argv[2] || "data/goodreads_library_export.csv";
 const LIMIT = parseInt(process.argv[3] || "50", 10);
 const DELAY_MS = 300; // Be nice to the API
 

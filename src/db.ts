@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { parse } from "csv-parse/sync";
 import { readFileSync } from "fs";
 
-const db = new Database("library.db");
+const db = new Database("data/library.db");
 
 // Initialize schema
 db.exec(`

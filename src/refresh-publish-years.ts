@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 
-const db = new Database("library.db");
+const db = new Database("data/library.db");
 
 const LIMIT = parseInt(process.argv[2] || "50");
 const DELAY_MS = 200;

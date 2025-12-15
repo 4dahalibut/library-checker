@@ -1,7 +1,7 @@
 import { parse } from 'csv-parse/sync';
 import { readFileSync } from 'fs';
 
-const content = readFileSync('goodreads_library_export.csv', 'utf-8');
+const content = readFileSync('data/goodreads_library_export.csv', 'utf-8');
 const records = parse(content, { columns: true }) as Record<string, string>[];
 
 const shelves = new Map<string, number>();
