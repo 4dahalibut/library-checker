@@ -209,24 +209,26 @@ function render() {
   `;
 }
 
-function isEbook(book: Book): boolean {
-  return !!(book.libraryFormat && (book.libraryFormat.toLowerCase().includes("ebook") || book.libraryFormat.toLowerCase().includes("e-book")));
+function isDigitalOnly(book: Book): boolean {
+  if (!book.libraryFormat) return false;
+  const format = book.libraryFormat.toLowerCase();
+  return format.includes("ebook") || format.includes("e-book") || format.includes("audiobook");
 }
 
 function filterBooks(books: Book[], filter: string): Book[] {
   switch (filter) {
     case "physical":
-      return books.filter((b) => b.libraryStatus && b.libraryStatus !== "NOT_FOUND" && !isEbook(b));
+      return books.filter((b) => b.libraryStatus && b.libraryStatus !== "NOT_FOUND" && !isDigitalOnly(b));
     case "pinned":
       return books.filter((b) => b.pinned);
     case "available":
-      return books.filter((b) => b.libraryStatus === "AVAILABLE" && !isEbook(b));
+      return books.filter((b) => b.libraryStatus === "AVAILABLE" && !isDigitalOnly(b));
     case "squirrel-hill":
-      return books.filter((b) => b.squirrelHillAvailable && !isEbook(b));
+      return books.filter((b) => b.squirrelHillAvailable && !isDigitalOnly(b));
     case "unavailable":
-      return books.filter((b) => b.libraryStatus === "UNAVAILABLE" && !isEbook(b));
+      return books.filter((b) => b.libraryStatus === "UNAVAILABLE" && !isDigitalOnly(b));
     case "not-found":
-      return books.filter((b) => b.libraryStatus === "NOT_FOUND" || isEbook(b));
+      return books.filter((b) => b.libraryStatus === "NOT_FOUND" || isDigitalOnly(b));
     case "unchecked":
       return books.filter((b) => !b.libraryStatus);
     default:
@@ -549,11 +551,9 @@ function renderBook(book: Book): string {
   let copiesText = "";
   let holdsText = "";
 
-  const ebook = !!(book.libraryFormat && (book.libraryFormat.toLowerCase().includes("ebook") || book.libraryFormat.toLowerCase().includes("e-book")));
-
-  if (ebook) {
+  if (isDigitalOnly(book)) {
     statusColor = "red";
-    statusText = "eBook Only";
+    statusText = "Digital Only";
   } else if (book.libraryStatus === "AVAILABLE") {
     statusColor = "green";
     statusText = "AVAILABLE";
