@@ -198,7 +198,9 @@ async function getEditionDetails(bibId: string): Promise<{ branches: Edition["br
 }
 
 export async function searchEditions(query: string): Promise<Edition[]> {
-  const encoded = encodeURIComponent(query);
+  // Strip subtitle (after colon) as it can break search
+  const cleanedQuery = query.split(":")[0].trim();
+  const encoded = encodeURIComponent(cleanedQuery);
   const url = `${API_BASE}/bibs/search?query=${encoded}&searchType=smart&limit=20&locale=en-US`;
 
   const data = await fetchJson<BiblioSearchResponse>(url);
@@ -249,5 +251,7 @@ export async function searchByTitleAuthor(
   title: string,
   author: string
 ): Promise<LibraryAvailability | null> {
-  return searchLibrary(`${title} ${author}`);
+  // Strip subtitle (after colon) as it can break search
+  const mainTitle = title.split(":")[0].trim();
+  return searchLibrary(`${mainTitle} ${author}`);
 }

@@ -209,26 +209,26 @@ function render() {
   `;
 }
 
-function isDigitalOnly(book: Book): boolean {
+function isNotPhysicalBook(book: Book): boolean {
   if (!book.libraryFormat) return false;
   const format = book.libraryFormat.toLowerCase();
-  return format.includes("ebook") || format.includes("e-book") || format.includes("audiobook");
+  return format.includes("ebook") || format.includes("e-book") || format.includes("audiobook") || format === "book_cd";
 }
 
 function filterBooks(books: Book[], filter: string): Book[] {
   switch (filter) {
     case "physical":
-      return books.filter((b) => b.libraryStatus && b.libraryStatus !== "NOT_FOUND" && !isDigitalOnly(b));
+      return books.filter((b) => b.libraryStatus && b.libraryStatus !== "NOT_FOUND" && !isNotPhysicalBook(b));
     case "pinned":
       return books.filter((b) => b.pinned);
     case "available":
-      return books.filter((b) => b.libraryStatus === "AVAILABLE" && !isDigitalOnly(b));
+      return books.filter((b) => b.libraryStatus === "AVAILABLE" && !isNotPhysicalBook(b));
     case "squirrel-hill":
-      return books.filter((b) => b.squirrelHillAvailable && !isDigitalOnly(b));
+      return books.filter((b) => b.squirrelHillAvailable && !isNotPhysicalBook(b));
     case "unavailable":
-      return books.filter((b) => b.libraryStatus === "UNAVAILABLE" && !isDigitalOnly(b));
+      return books.filter((b) => b.libraryStatus === "UNAVAILABLE" && !isNotPhysicalBook(b));
     case "not-found":
-      return books.filter((b) => b.libraryStatus === "NOT_FOUND" || isDigitalOnly(b));
+      return books.filter((b) => b.libraryStatus === "NOT_FOUND" || isNotPhysicalBook(b));
     case "unchecked":
       return books.filter((b) => !b.libraryStatus);
     default:
@@ -551,7 +551,7 @@ function renderBook(book: Book): string {
   let copiesText = "";
   let holdsText = "";
 
-  if (isDigitalOnly(book)) {
+  if (isNotPhysicalBook(book)) {
     statusColor = "red";
     statusText = "Digital Only";
   } else if (book.libraryStatus === "AVAILABLE") {
@@ -613,7 +613,7 @@ function renderBook(book: Book): string {
       <td align="center">
         <input type="button" value="${book.pinned ? "Unpin" : "Pin"}" onclick="togglePinBook('${book.bookId}')" style="font-size:10px">
         <input type="button" value="Refresh" onclick="refreshBook('${book.bookId}', event)" style="font-size:10px">
-        ${!ebook && book.libraryStatus && book.libraryStatus !== "NOT_FOUND" ? `<input type="button" value="Hold" onclick="holdBook('${escapeHtml(book.title.replace(/'/g, "\\\'"))}', '${escapeHtml((book.author || "").replace(/'/g, "\\\'"))}', event)" style="font-size:10px">` : ""}
+        ${!isNotPhysicalBook(book) && book.libraryStatus && book.libraryStatus !== "NOT_FOUND" ? `<input type="button" value="Hold" onclick="holdBook('${escapeHtml(book.title.replace(/'/g, "\\\'"))}', '${escapeHtml((book.author || "").replace(/'/g, "\\\'"))}', event)" style="font-size:10px">` : ""}
         <input type="button" value="X" onclick="deleteBookById('${book.bookId}')" style="font-size:10px" title="Delete">
       </td>
     </tr>

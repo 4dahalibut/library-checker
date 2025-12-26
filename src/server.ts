@@ -1,7 +1,8 @@
 import express from "express";
-import { getAllBooks, getStats, getAllGenres, updateLibraryData, addBook, deleteBook, togglePin, updateNotes, db } from "./db.js";
-import { searchLibrary, searchEditions } from "./library.js";
+import { getAllBooks, getStats, getAllGenres, updateLibraryData, addBook, deleteBook, togglePin, updateNotes, updateNumRatings, db } from "./db.js";
+import { searchLibrary, searchEditions, searchByISBN, searchByTitleAuthor } from "./library.js";
 import { getHolds, placeHold, cancelHold } from "./holds.js";
+import { fetchNumRatings } from "./goodreads.js";
 
 const app = express();
 const PORT = 3456;
@@ -175,48 +176,49 @@ app.post("/api/refresh/:bookId", async (req, res) => {
     return;
   }
 
-  // Try multiple search strategies
-  const queries = [
-    book.isbn13,
-    book.isbn,
-    `${book.title} ${book.author}`,
-    book.title,
-  ].filter(Boolean) as string[];
+  // Fetch library data and Goodreads ratings in parallel
+  const [libraryResult, numRatings] = await Promise.all([
+    (async () => {
+      let result = await searchByISBN(book.isbn13 || book.isbn);
+      if (!result) {
+        result = await searchByTitleAuthor(book.title, book.author);
+      }
+      return result;
+    })(),
+    fetchNumRatings(bookId),
+  ]);
 
-  let result = null;
-  for (const query of queries) {
-    console.log(`Refreshing "${book.title}" with query: ${query}`);
-    result = await searchLibrary(query);
-    if (result) {
-      console.log(`Found with query: ${query}`);
-      break;
-    }
+  console.log(`Refresh "${book.title}":`, libraryResult ? `found (${libraryResult.status})` : "not found", `ratings: ${numRatings}`);
+
+  // Update ratings
+  if (numRatings > 0) {
+    updateNumRatings(bookId, numRatings);
   }
-  console.log(`Result:`, result);
 
-  if (result) {
+  if (libraryResult) {
     updateLibraryData(
       bookId,
-      result.status,
-      result.availableCopies,
-      result.totalCopies,
-      result.heldCopies,
-      result.format,
-      result.catalogUrl,
-      result.squirrelHillAvailable
+      libraryResult.status,
+      libraryResult.availableCopies,
+      libraryResult.totalCopies,
+      libraryResult.heldCopies,
+      libraryResult.format,
+      libraryResult.catalogUrl,
+      libraryResult.squirrelHillAvailable
     );
     res.json({
-      libraryStatus: result.status,
-      availableCopies: result.availableCopies,
-      totalCopies: result.totalCopies,
-      heldCopies: result.heldCopies,
-      libraryFormat: result.format,
-      catalogUrl: result.catalogUrl,
-      squirrelHillAvailable: result.squirrelHillAvailable,
+      libraryStatus: libraryResult.status,
+      availableCopies: libraryResult.availableCopies,
+      totalCopies: libraryResult.totalCopies,
+      heldCopies: libraryResult.heldCopies,
+      libraryFormat: libraryResult.format,
+      catalogUrl: libraryResult.catalogUrl,
+      squirrelHillAvailable: libraryResult.squirrelHillAvailable,
+      numRatings,
     });
   } else {
     updateLibraryData(bookId, "NOT_FOUND", null, null, null, null, null, false);
-    res.json({ libraryStatus: "NOT_FOUND", squirrelHillAvailable: false });
+    res.json({ libraryStatus: "NOT_FOUND", squirrelHillAvailable: false, numRatings });
   }
 });
 
