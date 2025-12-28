@@ -1,0 +1,43 @@
+# Fly.io configuration for Library Checker
+# Deploy with: fly launch (first time) or fly deploy (updates)
+#
+# After first deploy, create a volume for the SQLite database:
+#   fly volumes create library_data --size 1 --region <your-region>
+#
+# Set secrets:
+#   fly secrets set LIBRARY_BARCODE=xxx LIBRARY_PIN=xxx LIBRARY_ACCOUNT_ID=xxx
+#   fly secrets set ANTHROPIC_API_KEY=sk-ant-xxx
+
+app = "library-checker"
+primary_region = "iad"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3456"
+  DATABASE_PATH = "/data/library.db"
+
+[build]
+
+[http_service]
+  internal_port = 3456
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+[mounts]
+  source = "library_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[checks]
+  [checks.health]
+    type = "http"
+    port = 3456
+    path = "/api/books"
+    interval = "30s"
+    timeout = "5s"

@@ -1,0 +1,20 @@
+version: "3.8"
+
+services:
+  app:
+    build: .
+    ports:
+      - "3456:3456"
+    environment:
+      - NODE_ENV=production
+      - PORT=3456
+      - DATABASE_PATH=/data/library.db
+      - LIBRARY_BARCODE=${LIBRARY_BARCODE}
+      - LIBRARY_PIN=${LIBRARY_PIN}
+      - LIBRARY_ACCOUNT_ID=${LIBRARY_ACCOUNT_ID}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    volumes:
+      - library_data:/data
+
+volumes:
+  library_data:

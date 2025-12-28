@@ -1,11 +1,17 @@
 import express from "express";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
+import "dotenv/config";
 import { getAllBooks, getStats, getAllGenres, updateLibraryData, addBook, deleteBook, togglePin, updateNotes, updateNumRatings, db } from "./db.js";
 import { searchLibrary, searchEditions, searchByISBN, searchByTitleAuthor } from "./library.js";
 import { getHolds, placeHold, cancelHold } from "./holds.js";
 import { fetchNumRatings } from "./goodreads.js";
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
 const app = express();
-const PORT = 3456;
+const PORT = parseInt(process.env.PORT || "3456");
 
 app.use(express.json());
 
@@ -221,6 +227,17 @@ app.post("/api/refresh/:bookId", async (req, res) => {
     res.json({ libraryStatus: "NOT_FOUND", squirrelHillAvailable: false, numRatings });
   }
 });
+
+// Serve static files in production
+if (process.env.NODE_ENV === "production") {
+  const clientDist = join(__dirname, "..", "client");
+  app.use(express.static(clientDist));
+
+  // Serve HTML pages (express.static handles file matches, this handles root path)
+  app.get("/", (_req, res) => {
+    res.sendFile(join(clientDist, "index.html"));
+  });
+}
 
 const server = app.listen(PORT, () => {
   console.log(`API server running at http://localhost:${PORT}`);

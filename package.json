@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "concurrently \"tsx watch src/server.ts\" \"vite\"",
     "build": "vite build && tsc",
-    "start": "node dist/server.js",
+    "start": "NODE_ENV=production node dist/server.js",
     "import": "tsx src/import-csv.ts",
     "refresh:library": "tsx src/refresh-library.ts",
     "refresh:ratings": "tsx src/refresh-ratings.ts",

@@ -1,8 +1,10 @@
 import Database from "better-sqlite3";
 import { parse } from "csv-parse/sync";
 import { readFileSync } from "fs";
+import "dotenv/config";
 
-const db = new Database("data/library.db");
+const dbPath = process.env.DATABASE_PATH || "data/library.db";
+const db = new Database(dbPath);
 
 // Initialize schema
 db.exec(`
