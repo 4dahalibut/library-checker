@@ -204,6 +204,8 @@ function render() {
     <center>
     <font size="1" face="Times New Roman, serif">
     <i>Last updated: ${new Date().toLocaleDateString()}</i>
+    &nbsp;|&nbsp;
+    <a href="#" onclick="doLogout(); return false;">Logout</a>
     </font>
     </center>
   `;
@@ -624,6 +626,70 @@ function escapeHtml(str: string): string {
   return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
+function renderLogin(error?: string) {
+  document.getElementById("app")!.innerHTML = `
+    <center>
+    <br><br>
+    <form onsubmit="doLogin(); return false;">
+      <table border="0" cellpadding="5">
+        <tr>
+          <td align="right"><font face="Times New Roman, serif">Username:</font></td>
+          <td><input type="text" id="login-username" size="20"></td>
+        </tr>
+        <tr>
+          <td align="right"><font face="Times New Roman, serif">Password:</font></td>
+          <td><input type="password" id="login-password" size="20"></td>
+        </tr>
+        <tr>
+          <td></td>
+          <td><input type="submit" value="Login"></td>
+        </tr>
+        ${error ? `<tr><td></td><td><font color="red" size="2">${error}</font></td></tr>` : ""}
+      </table>
+    </form>
+    </center>
+  `;
+}
+
+async function doLogin() {
+  const username = (document.getElementById("login-username") as HTMLInputElement).value;
+  const password = (document.getElementById("login-password") as HTMLInputElement).value;
+
+  try {
+    const res = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    if (res.ok) {
+      loadBooks();
+    } else {
+      renderLogin("Invalid credentials");
+    }
+  } catch {
+    renderLogin("Login failed");
+  }
+}
+
+async function doLogout() {
+  await fetch("/api/logout", { method: "POST" });
+  renderLogin();
+}
+
+async function checkAuth() {
+  try {
+    const res = await fetch("/api/status");
+    const data = await res.json();
+    if (data.authenticated) {
+      loadBooks();
+    } else {
+      renderLogin();
+    }
+  } catch {
+    renderLogin();
+  }
+}
+
 // Expose functions to global scope for onclick handlers
 declare global {
   interface Window {
@@ -639,6 +705,8 @@ declare global {
     holdBook: typeof holdBook;
     saveNotes: typeof saveNotes;
     closeEditionsModal: typeof closeEditionsModal;
+    doLogin: typeof doLogin;
+    doLogout: typeof doLogout;
   }
 }
 
@@ -654,5 +722,7 @@ window.refreshBook = refreshBook;
 window.holdBook = holdBook;
 window.saveNotes = saveNotes;
 window.closeEditionsModal = closeEditionsModal;
+window.doLogin = doLogin;
+window.doLogout = doLogout;
 
-loadBooks();
+checkAuth();

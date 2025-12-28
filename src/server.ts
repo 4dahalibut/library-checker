@@ -6,23 +6,53 @@ import { getAllBooks, getStats, getAllGenres, updateLibraryData, addBook, delete
 import { searchLibrary, searchEditions, searchByISBN, searchByTitleAuthor } from "./library.js";
 import { getHolds, placeHold, cancelHold } from "./holds.js";
 import { fetchNumRatings } from "./goodreads.js";
+import { authMiddleware, validateCredentials, createSession, deleteSession, verifySession, parseCookies, getSessionCookie, getClearSessionCookie } from "./auth.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const app = express();
 const PORT = parseInt(process.env.PORT || "3456");
+const isProduction = process.env.NODE_ENV === "production";
 
 app.use(express.json());
 
-app.get("/api/books", (_req, res) => {
+// Public auth routes
+app.post("/api/login", (req, res) => {
+  const { username, password } = req.body;
+  if (validateCredentials(username, password)) {
+    const sessionId = createSession();
+    res.setHeader("Set-Cookie", getSessionCookie(sessionId, isProduction));
+    res.json({ success: true });
+  } else {
+    res.status(401).json({ error: "Invalid credentials" });
+  }
+});
+
+app.post("/api/logout", (req, res) => {
+  const cookies = parseCookies(req.headers.cookie);
+  if (cookies.session_id) {
+    deleteSession(cookies.session_id);
+  }
+  res.setHeader("Set-Cookie", getClearSessionCookie());
+  res.json({ success: true });
+});
+
+app.get("/api/status", (req, res) => {
+  const cookies = parseCookies(req.headers.cookie);
+  const authenticated = verifySession(cookies.session_id);
+  res.json({ authenticated });
+});
+
+// Protected routes - require authentication
+app.get("/api/books", authMiddleware, (_req, res) => {
   const books = getAllBooks();
   const stats = getStats();
   const genres = getAllGenres();
   res.json({ books, stats, genres });
 });
 
-app.get("/api/holds", async (_req, res) => {
+app.get("/api/holds", authMiddleware, async (_req, res) => {
   try {
     const holds = await getHolds();
     res.json({ holds });
@@ -31,7 +61,7 @@ app.get("/api/holds", async (_req, res) => {
   }
 });
 
-app.post("/api/hold/:bibId", async (req, res) => {
+app.post("/api/hold/:bibId", authMiddleware, async (req, res) => {
   const { bibId } = req.params;
   try {
     const result = await placeHold(bibId);
@@ -42,7 +72,7 @@ app.post("/api/hold/:bibId", async (req, res) => {
   }
 });
 
-app.get("/api/editions", async (req, res) => {
+app.get("/api/editions", authMiddleware, async (req, res) => {
   const { q } = req.query;
   if (!q || typeof q !== "string") {
     res.status(400).json({ error: "Query parameter 'q' required" });
@@ -57,7 +87,7 @@ app.get("/api/editions", async (req, res) => {
   }
 });
 
-app.delete("/api/hold/:holdId", async (req, res) => {
+app.delete("/api/hold/:holdId", authMiddleware, async (req, res) => {
   const { holdId } = req.params;
   const { metadataId } = req.body;
   try {
@@ -69,7 +99,7 @@ app.delete("/api/hold/:holdId", async (req, res) => {
   }
 });
 
-app.post("/api/add-book", async (req, res) => {
+app.post("/api/add-book", authMiddleware, async (req, res) => {
   const { isbn, keyword } = req.body;
   if (!isbn && !keyword) {
     res.status(400).json({ error: "ISBN or keyword required" });
@@ -154,26 +184,26 @@ app.post("/api/add-book", async (req, res) => {
   res.json({ success: true, bookId, title, author });
 });
 
-app.delete("/api/book/:bookId", (req, res) => {
+app.delete("/api/book/:bookId", authMiddleware, (req, res) => {
   const { bookId } = req.params;
   deleteBook(bookId);
   res.json({ success: true });
 });
 
-app.post("/api/pin/:bookId", (req, res) => {
+app.post("/api/pin/:bookId", authMiddleware, (req, res) => {
   const { bookId } = req.params;
   const pinned = togglePin(bookId);
   res.json({ success: true, pinned });
 });
 
-app.post("/api/notes/:bookId", (req, res) => {
+app.post("/api/notes/:bookId", authMiddleware, (req, res) => {
   const { bookId } = req.params;
   const { notes } = req.body;
   updateNotes(bookId, notes);
   res.json({ success: true });
 });
 
-app.post("/api/refresh/:bookId", async (req, res) => {
+app.post("/api/refresh/:bookId", authMiddleware, async (req, res) => {
   const { bookId } = req.params;
   const books = getAllBooks();
   const book = books.find(b => b.bookId === bookId);
