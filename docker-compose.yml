@@ -3,8 +3,8 @@ version: "3.8"
 services:
   app:
     build: .
-    ports:
-      - "3456:3456"
+    expose:
+      - "3456"
     environment:
       - NODE_ENV=production
       - PORT=3456
@@ -13,8 +13,24 @@ services:
       - LIBRARY_PIN=${LIBRARY_PIN}
       - LIBRARY_ACCOUNT_ID=${LIBRARY_ACCOUNT_ID}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - AUTH_USERNAME=${AUTH_USERNAME}
+      - AUTH_PASSWORD=${AUTH_PASSWORD}
     volumes:
       - library_data:/data
 
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
 volumes:
   library_data:
+  caddy_data:
+  caddy_config:
