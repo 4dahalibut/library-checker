@@ -35,8 +35,8 @@ RUN npm ci --omit=dev
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
 
-# Create data directory for SQLite database
-RUN mkdir -p /app/data
+# Copy data directory (includes SQLite database)
+COPY data ./data
 
 # Set environment
 ENV NODE_ENV=production
