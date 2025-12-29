@@ -156,11 +156,24 @@ async function parseHolds(html: string): Promise<Hold[]> {
     return [];
   }
 
-  const holds: Hold[] = [];
   const holdsData = data.entities?.holds || {};
   const bibsData = data.entities?.bibs || {};
+  const holdEntries = Object.entries(holdsData);
 
-  for (const [holdId, hold] of Object.entries(holdsData)) {
+  // Fetch all availability data in parallel for not-yet-available holds
+  const availabilityMap = new Map<string, AvailabilityData | null>();
+  const notYetAvailableIds = holdEntries
+    .filter(([, h]) => h.status.toLowerCase() === "not_yet_available")
+    .map(([, h]) => h.metadataId);
+
+  if (notYetAvailableIds.length > 0) {
+    const results = await Promise.all(notYetAvailableIds.map(id => fetchAvailability(id)));
+    notYetAvailableIds.forEach((id, i) => availabilityMap.set(id, results[i]));
+  }
+
+  // Build holds array
+  const holds: Hold[] = [];
+  for (const [, hold] of holdEntries) {
     const bib = bibsData[hold.metadataId];
     const briefInfo = bib?.briefInfo;
 
@@ -186,9 +199,9 @@ async function parseHolds(html: string): Promise<Hold[]> {
       pickupBy = hold.pickupByDate;
     }
 
-    // For not-yet-available holds, fetch availability to get queue info
+    // Use pre-fetched availability data
     if (normalizedStatus === "not_yet_available") {
-      const availability = await fetchAvailability(hold.metadataId);
+      const availability = availabilityMap.get(hold.metadataId);
       if (availability) {
         const avail = Object.values(availability.entities.availabilities)[0];
         const item = Object.values(availability.entities.bibItems)[0];
@@ -196,7 +209,6 @@ async function parseHolds(html: string): Promise<Hold[]> {
         totalHolds = avail?.heldCopies;
         dueDate = item?.dueDate;
 
-        // Build a more informative status
         const parts: string[] = [];
         if (totalHolds && totalHolds > 1) {
           parts.push(`${totalHolds} holds`);
@@ -233,9 +245,18 @@ async function parseHolds(html: string): Promise<Hold[]> {
   return holds;
 }
 
+// Cache session for 10 minutes
+let cachedSession: LoginResult | null = null;
+let sessionExpiry = 0;
+
 async function getSession(): Promise<LoginResult> {
+  if (cachedSession && Date.now() < sessionExpiry) {
+    return cachedSession;
+  }
   const { token, cookies } = await getLoginPage();
-  return login(token, cookies);
+  cachedSession = await login(token, cookies);
+  sessionExpiry = Date.now() + 10 * 60 * 1000; // 10 minutes
+  return cachedSession;
 }
 
 export async function getHolds(): Promise<Hold[]> {

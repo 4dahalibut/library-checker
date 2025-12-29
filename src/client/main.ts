@@ -668,7 +668,7 @@ function renderBook(book: Book): string {
         <input type="button" class="action-btn" value="${book.pinned ? "Unpin" : "Pin"}" onclick="togglePinBook('${book.bookId}')">
         <input type="button" class="action-btn" value="Refresh" onclick="refreshBook('${book.bookId}', event)">
         ${!isNotPhysicalBook(book) && book.libraryStatus && book.libraryStatus !== "NOT_FOUND" ? `<input type="button" class="action-btn" value="Hold" onclick="holdBook('${escapeHtml(book.title.replace(/'/g, "\\\'"))}', '${escapeHtml((book.author || "").replace(/'/g, "\\\'"))}', event)">` : ""}
-        <input type="button" class="action-btn" value="X" onclick="deleteBookById('${book.bookId}')" title="Delete">
+        <input type="button" class="action-btn" value="X" onclick="deleteBookById('${book.bookId}')" title="Remove from list">
       </td>
     </tr>
   `;

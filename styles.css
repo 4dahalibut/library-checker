@@ -114,6 +114,10 @@ h1 {
   border: 1px solid #ccc;
 }
 
+.notes-input::placeholder {
+  color: #888;
+}
+
 /* Status colors */
 .status-available { color: green; }
 .status-unavailable { color: #cc9900; }
@@ -131,6 +135,25 @@ h1 {
   font-size: 13px;
   line-height: 1.8;
   margin: 10px 0;
+  position: relative;
+}
+
+/* Scroll indicator for filter sections */
+.filter-section::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 30px;
+  background: linear-gradient(to right, transparent, #f0f0f0);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.filter-section.has-overflow::after {
+  opacity: 1;
 }
 
 /* Modals */
