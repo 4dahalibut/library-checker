@@ -88,6 +88,18 @@ db.exec(`
   )
 `);
 
+// Create finished books table
+db.exec(`
+  CREATE TABLE IF NOT EXISTS finished_books (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    author TEXT,
+    rating INTEGER,
+    review TEXT,
+    finished_at TEXT NOT NULL
+  )
+`);
+
 export interface Book {
   bookId: string;
   title: string;
@@ -368,6 +380,49 @@ export function addRecommendation(title: string, author: string | null, recommen
 
 export function deleteRecommendation(id: number): void {
   db.prepare(`DELETE FROM recommendations WHERE id = ?`).run(id);
+}
+
+// Finished Books
+export interface FinishedBook {
+  id: number;
+  title: string;
+  author: string | null;
+  rating: number | null;
+  review: string | null;
+  finishedAt: string;
+}
+
+export function getFinishedBooks(): FinishedBook[] {
+  return db.prepare(`
+    SELECT id, title, author, rating, review, finished_at as finishedAt
+    FROM finished_books
+    ORDER BY finished_at DESC
+  `).all() as FinishedBook[];
+}
+
+export function addFinishedBook(title: string, author: string | null, rating: number | null, review: string | null): FinishedBook {
+  const finishedAt = new Date().toISOString();
+  const result = db.prepare(`
+    INSERT INTO finished_books (title, author, rating, review, finished_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(title, author, rating, review, finishedAt);
+
+  return {
+    id: result.lastInsertRowid as number,
+    title,
+    author,
+    rating,
+    review,
+    finishedAt,
+  };
+}
+
+export function updateFinishedBook(id: number, rating: number | null, review: string | null): void {
+  db.prepare(`UPDATE finished_books SET rating = ?, review = ? WHERE id = ?`).run(rating, review, id);
+}
+
+export function deleteFinishedBook(id: number): void {
+  db.prepare(`DELETE FROM finished_books WHERE id = ?`).run(id);
 }
 
 export { db };

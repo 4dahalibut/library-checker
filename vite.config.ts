@@ -15,6 +15,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, "index.html"),
         holds: resolve(__dirname, "holds.html"),
+        finished: resolve(__dirname, "finished.html"),
       },
     },
   },

@@ -2,7 +2,7 @@ import express from "express";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import "dotenv/config";
-import { getAllBooks, getStats, getAllGenres, updateLibraryData, addBook, deleteBook, togglePin, updateNotes, updateNumRatings, getRecommendations, addRecommendation, deleteRecommendation, db } from "./db.js";
+import { getAllBooks, getStats, getAllGenres, updateLibraryData, addBook, deleteBook, togglePin, updateNotes, updateNumRatings, getRecommendations, addRecommendation, deleteRecommendation, getFinishedBooks, addFinishedBook, updateFinishedBook, deleteFinishedBook, db } from "./db.js";
 import { searchLibrary, searchEditions, searchByISBN, searchByTitleAuthor } from "./library.js";
 import { getHolds, placeHold, cancelHold } from "./holds.js";
 import { fetchNumRatings } from "./goodreads.js";
@@ -80,6 +80,35 @@ app.post("/api/recommendations", (req, res) => {
 app.delete("/api/recommendations/:id", authMiddleware, (req, res) => {
   const id = parseInt(req.params.id);
   deleteRecommendation(id);
+  res.json({ success: true });
+});
+
+// Finished books routes (all protected)
+app.get("/api/finished", (_req, res) => {
+  const books = getFinishedBooks();
+  res.json({ books });
+});
+
+app.post("/api/finished", authMiddleware, (req, res) => {
+  const { title, author, rating, review } = req.body;
+  if (!title) {
+    res.status(400).json({ error: "Title is required" });
+    return;
+  }
+  const book = addFinishedBook(title, author || null, rating || null, review || null);
+  res.json({ success: true, book });
+});
+
+app.put("/api/finished/:id", authMiddleware, (req, res) => {
+  const id = parseInt(req.params.id);
+  const { rating, review } = req.body;
+  updateFinishedBook(id, rating ?? null, review ?? null);
+  res.json({ success: true });
+});
+
+app.delete("/api/finished/:id", authMiddleware, (req, res) => {
+  const id = parseInt(req.params.id);
+  deleteFinishedBook(id);
   res.json({ success: true });
 });
 
