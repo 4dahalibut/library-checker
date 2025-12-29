@@ -245,6 +245,10 @@ export async function getHolds(): Promise<Hold[]> {
 }
 
 export async function placeHold(bibId: string, branchId = "YQ"): Promise<{ success: boolean; message: string }> {
+  if (!BARCODE || !PIN || !ACCOUNT_ID) {
+    return { success: false, message: "Library credentials not configured" };
+  }
+
   const session = await getSession();
 
   const response = await fetch(`${GATEWAY_URL}/holds?locale=en-US`, {

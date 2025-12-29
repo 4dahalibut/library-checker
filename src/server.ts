@@ -117,10 +117,14 @@ app.post("/api/hold/:bibId", authMiddleware, async (req, res) => {
   const { bibId } = req.params;
   try {
     const result = await placeHold(bibId);
+    if (!result.success) {
+      console.error("Hold failed:", result.message);
+    }
     res.json(result);
   } catch (error) {
     console.error("Error placing hold:", error);
-    res.status(500).json({ success: false, message: "Failed to place hold" });
+    const message = error instanceof Error ? error.message : "Failed to place hold";
+    res.status(500).json({ success: false, message });
   }
 });
 
