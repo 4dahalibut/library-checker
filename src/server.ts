@@ -260,7 +260,7 @@ app.post("/api/refresh/:bookId", authMiddleware, async (req, res) => {
 
 // Serve static files in production
 if (process.env.NODE_ENV === "production") {
-  const clientDist = join(__dirname, "..", "client");
+  const clientDist = join(__dirname, "client");
   app.use(express.static(clientDist));
 
   // Serve HTML pages (express.static handles file matches, this handles root path)
