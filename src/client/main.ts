@@ -103,6 +103,39 @@ function render() {
   filtered = sortBooks(filtered, currentSort);
 
   document.getElementById("app")!.innerHTML = `
+    <center><h3>Recommend a Book</h3></center>
+    <form class="add-form" onsubmit="submitRecommendation(); return false;">
+      <font size="2">Suggest a book for Josh to read:</font><br>
+      <input type="text" id="rec-title" class="add-input" placeholder="Book title" style="margin-bottom:5px;">
+      <input type="text" id="rec-author" class="add-input" placeholder="Author (optional)" style="margin-bottom:5px;">
+      <input type="text" id="rec-name" class="add-input" placeholder="Your name">
+      <input type="submit" value="Recommend">
+      <div id="rec-status" style="font-size:12px; margin-top:5px;"></div>
+    </form>
+
+    ${recommendations.length > 0 ? `
+    <br>
+    <center><b>Recommendations from friends:</b></center>
+    <div class="table-scroll">
+    <table class="data-table">
+      <tr bgcolor="#cccccc">
+        <th align="left">Title</th>
+        <th align="left">Author</th>
+        <th align="left">Recommended by</th>
+      </tr>
+      ${recommendations.map(r => `
+        <tr>
+          <td>${escapeHtml(r.title)}</td>
+          <td><font size="2">${escapeHtml(r.author || "")}</font></td>
+          <td><font size="2">${escapeHtml(r.recommendedBy)}</font></td>
+        </tr>
+      `).join("")}
+    </table>
+    </div>
+    ` : ""}
+
+    <hr>
+
     <center>
     <table class="stats-table" border="0" cellpadding="5">
       <tr>
@@ -195,39 +228,6 @@ function render() {
       ${filtered.map(renderBook).join("")}
     </table>
     </div>
-
-    <hr>
-
-    <center><h3>Recommend a Book</h3></center>
-    <form class="add-form" onsubmit="submitRecommendation(); return false;">
-      <font size="2">Suggest a book for Josh to read:</font><br>
-      <input type="text" id="rec-title" class="add-input" placeholder="Book title" style="margin-bottom:5px;">
-      <input type="text" id="rec-author" class="add-input" placeholder="Author (optional)" style="margin-bottom:5px;">
-      <input type="text" id="rec-name" class="add-input" placeholder="Your name">
-      <input type="submit" value="Recommend">
-      <div id="rec-status" style="font-size:12px; margin-top:5px;"></div>
-    </form>
-
-    ${recommendations.length > 0 ? `
-    <br>
-    <center><b>Recommendations from friends:</b></center>
-    <div class="table-scroll">
-    <table class="data-table">
-      <tr bgcolor="#cccccc">
-        <th align="left">Title</th>
-        <th align="left">Author</th>
-        <th align="left">Recommended by</th>
-      </tr>
-      ${recommendations.map(r => `
-        <tr>
-          <td>${escapeHtml(r.title)}</td>
-          <td><font size="2">${escapeHtml(r.author || "")}</font></td>
-          <td><font size="2">${escapeHtml(r.recommendedBy)}</font></td>
-        </tr>
-      `).join("")}
-    </table>
-    </div>
-    ` : ""}
 
     <hr>
 
