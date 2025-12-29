@@ -333,42 +333,48 @@ async function addBook() {
 
 async function deleteBookById(bookId: string) {
   if (!confirm("Delete this book?")) return;
-  try {
-    await fetch("/api/book/" + encodeURIComponent(bookId), { method: "DELETE" });
-    allBooks = allBooks.filter((b) => b.bookId !== bookId);
-    render();
-  } catch (e) {
-    console.error(e);
-  }
+  checkAuthAndRun(async () => {
+    try {
+      await fetch("/api/book/" + encodeURIComponent(bookId), { method: "DELETE" });
+      allBooks = allBooks.filter((b) => b.bookId !== bookId);
+      render();
+    } catch (e) {
+      console.error(e);
+    }
+  });
 }
 
 async function togglePinBook(bookId: string) {
-  try {
-    const res = await fetch("/api/pin/" + encodeURIComponent(bookId), { method: "POST" });
-    const data = await res.json();
-    const idx = allBooks.findIndex((b) => b.bookId === bookId);
-    if (idx >= 0) allBooks[idx].pinned = data.pinned;
-    render();
-  } catch (e) {
-    console.error(e);
-  }
+  checkAuthAndRun(async () => {
+    try {
+      const res = await fetch("/api/pin/" + encodeURIComponent(bookId), { method: "POST" });
+      const data = await res.json();
+      const idx = allBooks.findIndex((b) => b.bookId === bookId);
+      if (idx >= 0) allBooks[idx].pinned = data.pinned;
+      render();
+    } catch (e) {
+      console.error(e);
+    }
+  });
 }
 
 async function refreshBook(bookId: string, event: Event) {
   const btn = event.target as HTMLInputElement;
-  btn.disabled = true;
-  btn.value = "...";
-  try {
-    const res = await fetch("/api/refresh/" + bookId, { method: "POST" });
-    const updated = await res.json();
-    const idx = allBooks.findIndex((b) => b.bookId === bookId);
-    if (idx >= 0) allBooks[idx] = { ...allBooks[idx], ...updated };
-    render();
-  } catch (e) {
-    console.error(e);
-    btn.disabled = false;
-    btn.value = "Refresh";
-  }
+  checkAuthAndRun(async () => {
+    btn.disabled = true;
+    btn.value = "...";
+    try {
+      const res = await fetch("/api/refresh/" + bookId, { method: "POST" });
+      const updated = await res.json();
+      const idx = allBooks.findIndex((b) => b.bookId === bookId);
+      if (idx >= 0) allBooks[idx] = { ...allBooks[idx], ...updated };
+      render();
+    } catch (e) {
+      console.error(e);
+      btn.disabled = false;
+      btn.value = "Refresh";
+    }
+  });
 }
 
 async function holdBook(title: string, author: string, event: Event) {
@@ -537,17 +543,19 @@ function closeEditionsModal() {
 }
 
 async function saveNotes(bookId: string, notes: string) {
-  try {
-    await fetch("/api/notes/" + encodeURIComponent(bookId), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ notes }),
-    });
-    const idx = allBooks.findIndex((b) => b.bookId === bookId);
-    if (idx >= 0) allBooks[idx].notes = notes;
-  } catch (e) {
-    console.error(e);
-  }
+  checkAuthAndRun(async () => {
+    try {
+      await fetch("/api/notes/" + encodeURIComponent(bookId), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes }),
+      });
+      const idx = allBooks.findIndex((b) => b.bookId === bookId);
+      if (idx >= 0) allBooks[idx].notes = notes;
+    } catch (e) {
+      console.error(e);
+    }
+  });
 }
 
 function renderBook(book: Book): string {
