@@ -68,18 +68,22 @@ let currentSort = "date";
 let currentGenre: string | null = null;
 let currentCulture: string | null = null;
 let searchQuery = "";
+let isLoggedIn = false;
 
 async function loadBooks() {
-  const [booksRes, recsRes] = await Promise.all([
+  const [booksRes, recsRes, statusRes] = await Promise.all([
     fetch("/api/books"),
     fetch("/api/recommendations"),
+    fetch("/api/status"),
   ]);
   const booksData = await booksRes.json();
   const recsData = await recsRes.json();
+  const statusData = await statusRes.json();
   allBooks = booksData.books || [];
   stats = booksData.stats || {};
   genres = booksData.genres || [];
   recommendations = recsData.recommendations || [];
+  isLoggedIn = statusData.authenticated || false;
   render();
 }
 
@@ -103,6 +107,10 @@ function render() {
   filtered = sortBooks(filtered, currentSort);
 
   document.getElementById("app")!.innerHTML = `
+    ${isLoggedIn ? `
+    <center><input type="button" class="action-btn" value="Logout" onclick="doLogout()"></center>
+    <hr>
+    ` : `
     <center><h3>Recommend a Book</h3></center>
     <form class="add-form" onsubmit="submitRecommendation(); return false;">
       <font size="2">Suggest a book for Josh to read:</font><br>
@@ -135,6 +143,7 @@ function render() {
     ` : ""}
 
     <hr>
+    `}
 
     <center>
     <table class="stats-table" border="0" cellpadding="5">
@@ -717,6 +726,12 @@ function closeLoginModal() {
   if (modal) modal.remove();
 }
 
+async function doLogout() {
+  await fetch("/api/logout", { method: "POST" });
+  isLoggedIn = false;
+  render();
+}
+
 async function submitRecommendation() {
   const titleInput = document.getElementById("rec-title") as HTMLInputElement;
   const authorInput = document.getElementById("rec-author") as HTMLInputElement;
@@ -782,6 +797,7 @@ declare global {
     closeEditionsModal: typeof closeEditionsModal;
     closeLoginModal: typeof closeLoginModal;
     submitRecommendation: typeof submitRecommendation;
+    doLogout: typeof doLogout;
   }
 }
 
@@ -799,5 +815,6 @@ window.saveNotes = saveNotes;
 window.closeEditionsModal = closeEditionsModal;
 window.closeLoginModal = closeLoginModal;
 window.submitRecommendation = submitRecommendation;
+window.doLogout = doLogout;
 
 loadBooks();
