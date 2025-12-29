@@ -96,9 +96,17 @@ db.exec(`
     author TEXT,
     rating INTEGER,
     review TEXT,
-    finished_at TEXT NOT NULL
+    finished_at TEXT NOT NULL,
+    vibe TEXT
   )
 `);
+
+// Add vibe column if it doesn't exist (migration)
+try {
+  db.exec(`ALTER TABLE finished_books ADD COLUMN vibe TEXT`);
+} catch {
+  // Column already exists
+}
 
 export interface Book {
   bookId: string;
@@ -387,38 +395,38 @@ export interface FinishedBook {
   id: number;
   title: string;
   author: string | null;
-  rating: number | null;
+  vibe: string | null;
   review: string | null;
   finishedAt: string;
 }
 
 export function getFinishedBooks(): FinishedBook[] {
   return db.prepare(`
-    SELECT id, title, author, rating, review, finished_at as finishedAt
+    SELECT id, title, author, vibe, review, finished_at as finishedAt
     FROM finished_books
     ORDER BY finished_at DESC
   `).all() as FinishedBook[];
 }
 
-export function addFinishedBook(title: string, author: string | null, rating: number | null, review: string | null): FinishedBook {
+export function addFinishedBook(title: string, author: string | null, vibe: string | null, review: string | null): FinishedBook {
   const finishedAt = new Date().toISOString();
   const result = db.prepare(`
-    INSERT INTO finished_books (title, author, rating, review, finished_at)
+    INSERT INTO finished_books (title, author, vibe, review, finished_at)
     VALUES (?, ?, ?, ?, ?)
-  `).run(title, author, rating, review, finishedAt);
+  `).run(title, author, vibe, review, finishedAt);
 
   return {
     id: result.lastInsertRowid as number,
     title,
     author,
-    rating,
+    vibe,
     review,
     finishedAt,
   };
 }
 
-export function updateFinishedBook(id: number, rating: number | null, review: string | null): void {
-  db.prepare(`UPDATE finished_books SET rating = ?, review = ? WHERE id = ?`).run(rating, review, id);
+export function updateFinishedBook(id: number, vibe: string | null, review: string | null): void {
+  db.prepare(`UPDATE finished_books SET vibe = ?, review = ? WHERE id = ?`).run(vibe, review, id);
 }
 
 export function deleteFinishedBook(id: number): void {

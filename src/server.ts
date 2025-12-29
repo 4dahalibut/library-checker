@@ -90,19 +90,19 @@ app.get("/api/finished", (_req, res) => {
 });
 
 app.post("/api/finished", authMiddleware, (req, res) => {
-  const { title, author, rating, review } = req.body;
+  const { title, author, vibe, review } = req.body;
   if (!title) {
     res.status(400).json({ error: "Title is required" });
     return;
   }
-  const book = addFinishedBook(title, author || null, rating || null, review || null);
+  const book = addFinishedBook(title, author || null, vibe || null, review || null);
   res.json({ success: true, book });
 });
 
 app.put("/api/finished/:id", authMiddleware, (req, res) => {
   const id = parseInt(req.params.id);
-  const { rating, review } = req.body;
-  updateFinishedBook(id, rating ?? null, review ?? null);
+  const { vibe, review } = req.body;
+  updateFinishedBook(id, vibe ?? null, review ?? null);
   res.json({ success: true });
 });
 

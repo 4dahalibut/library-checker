@@ -2,7 +2,7 @@ interface FinishedBook {
   id: number;
   title: string;
   author: string | null;
-  rating: number | null;
+  vibe: string | null;
   review: string | null;
   finishedAt: string;
 }
@@ -31,17 +31,12 @@ function render() {
     <hr>
     <center><b>Add finished book:</b></center>
     <form class="add-form" onsubmit="addBook(); return false;">
-      <input type="text" id="add-title" class="add-input" placeholder="Book title" style="margin-bottom:5px;">
-      <input type="text" id="add-author" class="add-input" placeholder="Author" style="margin-bottom:5px;">
-      <select id="add-rating" class="add-input" style="margin-bottom:5px;">
-        <option value="">Rating (optional)</option>
-        <option value="5">5 - Amazing</option>
-        <option value="4">4 - Great</option>
-        <option value="3">3 - Good</option>
-        <option value="2">2 - Meh</option>
-        <option value="1">1 - Bad</option>
-      </select>
-      <textarea id="add-review" class="add-input" placeholder="Review (optional)" rows="3" style="margin-bottom:5px;"></textarea>
+      <div style="display:flex; gap:10px; margin-bottom:5px;">
+        <input type="text" id="add-title" class="add-input" placeholder="Book title" style="flex:2;">
+        <input type="text" id="add-author" class="add-input" placeholder="Author" style="flex:1;">
+      </div>
+      <input type="text" id="add-vibe" class="add-input" placeholder="Vibe check (e.g. cozy, intense, thought-provoking)" style="margin-bottom:5px;">
+      <textarea id="add-review" class="add-input" placeholder="Full review (optional)" rows="6" style="margin-bottom:5px; width:100%; box-sizing:border-box;"></textarea>
       <input type="submit" value="Add">
       <div id="add-status" style="font-size:12px; margin-top:5px;"></div>
     </form>
@@ -51,40 +46,26 @@ function render() {
     ${books.length === 0 ? `
     <center><i>No finished books yet.</i></center>
     ` : `
-    <div class="table-scroll">
-    <table class="data-table">
-      <tr bgcolor="#cccccc">
-        <th align="left">Title</th>
-        <th align="left">Author</th>
-        <th align="center">Rating</th>
-        <th align="left">Review</th>
-        <th align="center">Finished</th>
-        ${isLoggedIn ? '<th align="center">Actions</th>' : ''}
-      </tr>
+    <div class="finished-books">
       ${books.map(renderBook).join("")}
-    </table>
     </div>
     `}
   `;
 }
 
 function renderBook(book: FinishedBook): string {
-  const stars = book.rating ? "★".repeat(book.rating) + "☆".repeat(5 - book.rating) : "-";
   const date = new Date(book.finishedAt).toLocaleDateString();
 
   return `
-    <tr>
-      <td>${escapeHtml(book.title)}</td>
-      <td><font size="2">${escapeHtml(book.author || "")}</font></td>
-      <td align="center"><font color="#cc9900">${stars}</font></td>
-      <td><font size="2">${escapeHtml(book.review || "")}</font></td>
-      <td align="center"><font size="2">${date}</font></td>
-      ${isLoggedIn ? `
-      <td align="center">
-        <input type="button" class="action-btn" value="X" onclick="deleteBook(${book.id})" title="Delete">
-      </td>
-      ` : ''}
-    </tr>
+    <div class="finished-book" style="margin-bottom:20px; padding-bottom:20px; border-bottom:1px dashed #999;">
+      <div style="margin-bottom:5px;">
+        <b>${escapeHtml(book.title)}</b>${book.author ? ` <font color="#666">by ${escapeHtml(book.author)}</font>` : ""}
+        ${isLoggedIn ? `<input type="button" class="action-btn" value="X" onclick="deleteBook(${book.id})" title="Delete" style="margin-left:10px; font-size:10px; padding:2px 6px;">` : ""}
+      </div>
+      ${book.vibe ? `<div style="margin-bottom:5px;"><i>${escapeHtml(book.vibe)}</i></div>` : ""}
+      ${book.review ? `<div style="white-space:pre-wrap; margin-bottom:5px;">${escapeHtml(book.review)}</div>` : ""}
+      <div><font size="1" color="#888">Finished ${date}</font></div>
+    </div>
   `;
 }
 
@@ -95,13 +76,13 @@ function escapeHtml(str: string): string {
 async function addBook() {
   const titleInput = document.getElementById("add-title") as HTMLInputElement;
   const authorInput = document.getElementById("add-author") as HTMLInputElement;
-  const ratingSelect = document.getElementById("add-rating") as HTMLSelectElement;
+  const vibeInput = document.getElementById("add-vibe") as HTMLInputElement;
   const reviewInput = document.getElementById("add-review") as HTMLTextAreaElement;
   const status = document.getElementById("add-status")!;
 
   const title = titleInput.value.trim();
   const author = authorInput.value.trim();
-  const rating = ratingSelect.value ? parseInt(ratingSelect.value) : null;
+  const vibe = vibeInput.value.trim();
   const review = reviewInput.value.trim();
 
   if (!title) {
@@ -114,14 +95,14 @@ async function addBook() {
     const res = await fetch("/api/finished", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, author: author || null, rating, review: review || null }),
+      body: JSON.stringify({ title, author: author || null, vibe: vibe || null, review: review || null }),
     });
     const data = await res.json();
     if (data.success) {
       status.textContent = "Added!";
       titleInput.value = "";
       authorInput.value = "";
-      ratingSelect.value = "";
+      vibeInput.value = "";
       reviewInput.value = "";
       books.unshift(data.book);
       render();
