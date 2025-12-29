@@ -40,14 +40,14 @@ RUN mkdir -p /app/data
 
 # Set environment
 ENV NODE_ENV=production
-ENV PORT=3456
+ENV PORT=80
 
 # Expose the port
-EXPOSE 3456
+EXPOSE 80
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node -e "fetch('http://localhost:3456/api/books').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+  CMD node -e "fetch('http://localhost:80/api/books').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 
 # Start the application
 CMD ["node", "dist/server.js"]
