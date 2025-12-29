@@ -282,7 +282,7 @@ export async function placeHold(bibId: string, branchId = "YQ"): Promise<{ succe
     return { success: true, message: "Hold placed successfully" };
   } else {
     console.error("Hold API error response:", JSON.stringify(data, null, 2));
-    const errorMsg = data?.errors?.[0]?.message || data?.errors?.[0]?.detail || data?.message || data?.error || `Hold failed (${response.status})`;
+    const errorMsg = data?.errors?.[0]?.message || data?.errors?.[0]?.detail || data?.message || data?.error?.message || `Hold failed (${response.status})`;
     return { success: false, message: errorMsg };
   }
 }
