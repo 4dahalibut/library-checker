@@ -1,0 +1,335 @@
+/* Base styles - retro aesthetic */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: #f0f0f0;
+  color: #000000;
+  font-family: "Times New Roman", serif;
+  margin: 0;
+  padding: 10px;
+}
+
+a {
+  color: #0000ff;
+}
+
+a:visited {
+  color: #800080;
+}
+
+/* Layout wrapper */
+.wrapper {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 10px;
+  background-color: #f0f0f0;
+}
+
+h1 {
+  font-family: "Times New Roman", serif;
+  margin: 0.5em 0;
+}
+
+/* Stats row */
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.stats-table td {
+  padding: 5px 10px;
+  text-align: center;
+}
+
+/* Filter/sort controls */
+.controls {
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.8;
+}
+
+/* Search and add forms */
+.search-input,
+.add-input {
+  font-size: 16px;
+  padding: 8px;
+  border: 1px solid #999;
+  max-width: 100%;
+}
+
+.add-form {
+  text-align: center;
+  margin: 10px 0;
+}
+
+.add-form input[type="submit"] {
+  font-size: 16px;
+  padding: 8px 16px;
+}
+
+/* Table scroll wrapper for mobile */
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Data tables */
+.data-table {
+  width: 100%;
+  min-width: 600px;
+  border-collapse: collapse;
+  background-color: #ffffff;
+  border: 1px solid #000;
+}
+
+.data-table th,
+.data-table td {
+  padding: 8px;
+  border: 1px solid #000;
+  font-family: "Times New Roman", serif;
+}
+
+.data-table th {
+  background-color: #cccccc;
+  text-align: left;
+}
+
+/* Action buttons */
+.action-btn {
+  font-size: 14px;
+  padding: 10px 14px;
+  margin: 3px;
+  cursor: pointer;
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Notes input */
+.notes-input {
+  font-size: 12px;
+  color: #666;
+  padding: 4px;
+  width: 100%;
+  max-width: 200px;
+  border: 1px solid #ccc;
+}
+
+/* Status colors */
+.status-available { color: green; }
+.status-unavailable { color: #cc9900; }
+.status-not-found { color: red; }
+.status-unchecked { color: gray; }
+
+/* Pinned row */
+.row-pinned {
+  background-color: #ffffcc;
+}
+
+/* Genres/cultures filter section */
+.filter-section {
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.8;
+  margin: 10px 0;
+}
+
+/* Modals */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 10px;
+}
+
+.modal-content {
+  background: white;
+  padding: 20px;
+  border: 2px solid black;
+  max-width: 800px;
+  max-height: 90vh;
+  overflow-y: auto;
+  width: 100%;
+}
+
+.modal-content h3 {
+  margin-top: 0;
+}
+
+.modal-buttons {
+  text-align: center;
+  margin-top: 15px;
+}
+
+.modal-buttons input {
+  font-size: 14px;
+  padding: 8px 20px;
+  margin: 5px;
+}
+
+/* Commands section */
+.commands {
+  font-family: "Courier New", monospace;
+  font-size: 12px;
+}
+
+/* Footer */
+.footer {
+  text-align: center;
+  font-size: 11px;
+  font-style: italic;
+  margin-top: 15px;
+}
+
+/* Mobile styles */
+@media (max-width: 600px) {
+  body {
+    padding: 8px;
+  }
+
+  .wrapper {
+    padding: 8px;
+  }
+
+  h1 {
+    font-size: 1.4em;
+  }
+
+  /* Controls - big tappable pills */
+  .controls {
+    font-size: 16px;
+    line-height: 1.4;
+  }
+
+  .controls a {
+    display: inline-block;
+    padding: 14px 18px;
+    background: #ddd;
+    margin: 4px;
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 500;
+  }
+
+  .controls a:active {
+    background: #bbb;
+  }
+
+  /* Full-width inputs - big and easy to tap */
+  .search-input,
+  .add-input {
+    width: 100%;
+    margin-bottom: 12px;
+    font-size: 18px;
+    padding: 16px;
+    min-height: 56px;
+    border-radius: 8px;
+  }
+
+  .add-form {
+    padding: 0 5px;
+  }
+
+  .add-form input[type="submit"] {
+    width: 100%;
+    padding: 18px;
+    font-size: 18px;
+    min-height: 60px;
+    border-radius: 8px;
+    font-weight: bold;
+  }
+
+  /* Genre/culture filters - big tappable pills */
+  .filter-section {
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+    padding: 12px 0;
+  }
+
+  .filter-section a {
+    display: inline-block;
+    padding: 14px 18px;
+    background: #ddd;
+    margin: 4px;
+    border-radius: 8px;
+    text-decoration: none;
+  }
+
+  .filter-section a:active {
+    background: #bbb;
+  }
+
+  /* Action buttons - chunky and easy to hit */
+  .action-btn {
+    font-size: 18px;
+    padding: 16px 20px;
+    min-height: 60px;
+    min-width: 60px;
+    border-radius: 8px;
+    font-weight: bold;
+    margin: 4px;
+  }
+
+  .action-btn:active {
+    background: #ccc;
+  }
+
+  /* Notes input */
+  .notes-input {
+    max-width: 100%;
+    font-size: 16px;
+    padding: 12px;
+    min-height: 50px;
+    border-radius: 6px;
+  }
+
+  /* Modal full width on mobile */
+  .modal-content {
+    padding: 20px;
+    max-height: 85vh;
+  }
+
+  .modal-buttons input {
+    width: 100%;
+    padding: 18px;
+    font-size: 20px;
+    margin: 8px 0;
+    min-height: 64px;
+    border-radius: 10px;
+    font-weight: bold;
+  }
+
+  /* Table cells */
+  .data-table th,
+  .data-table td {
+    padding: 12px 8px;
+    font-size: 15px;
+  }
+
+  /* Radio buttons much bigger */
+  .data-table input[type="radio"] {
+    width: 28px;
+    height: 28px;
+  }
+
+  /* Links in table need bigger tap targets */
+  .data-table a {
+    display: inline-block;
+    padding: 8px 4px;
+  }
+
+  .commands {
+    font-size: 11px;
+    overflow-x: auto;
+  }
+}

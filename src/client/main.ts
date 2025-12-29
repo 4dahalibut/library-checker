@@ -90,21 +90,20 @@ function render() {
 
   document.getElementById("app")!.innerHTML = `
     <center>
-    <table border="0" cellpadding="5">
+    <table class="stats-table" border="0" cellpadding="5">
       <tr>
-        <td align="center"><font color="green" size="+2"><b>${stats.available || 0}</b></font><br><font size="2">Available</font></td>
-        <td align="center"><font color="#cc9900" size="+2"><b>${stats.unavailable || 0}</b></font><br><font size="2">Checked Out</font></td>
-        <td align="center"><font color="red" size="+2"><b>${stats.notFound || 0}</b></font><br><font size="2">Not Found</font></td>
-        <td align="center"><font color="gray" size="+2"><b>${stats.unchecked || 0}</b></font><br><font size="2">Unchecked</font></td>
-        <td align="center"><font size="+2"><b>${stats.total || 0}</b></font><br><font size="2">Total</font></td>
+        <td><font color="green" size="+2"><b>${stats.available || 0}</b></font><br><font size="2">Available</font></td>
+        <td><font color="#cc9900" size="+2"><b>${stats.unavailable || 0}</b></font><br><font size="2">Checked Out</font></td>
+        <td><font color="red" size="+2"><b>${stats.notFound || 0}</b></font><br><font size="2">Not Found</font></td>
+        <td><font color="gray" size="+2"><b>${stats.unchecked || 0}</b></font><br><font size="2">Unchecked</font></td>
+        <td><font size="+2"><b>${stats.total || 0}</b></font><br><font size="2">Total</font></td>
       </tr>
     </table>
     </center>
 
     <hr>
 
-    <center>
-    <font size="2">
+    <div class="controls">
     <b>Filter:</b>
     ${["all", "physical", "pinned", "available", "squirrel-hill", "unavailable", "not-found", "unchecked"]
       .map((f) => (currentFilter === f ? `[<b>${f}</b>]` : `<a href="#" onclick="setFilter('${f}'); return false;">${f}</a>`))
@@ -116,29 +115,25 @@ function render() {
       .join(" | ")}
     <br><br>
     <b>Search:</b>
-    <input type="text" id="search-input" size="30" placeholder="Search by title or author..." value="${escapeHtml(searchQuery)}" oninput="handleSearch(this.value)">
+    <input type="text" id="search-input" class="search-input" placeholder="Search by title or author..." value="${escapeHtml(searchQuery)}" oninput="handleSearch(this.value)">
     ${searchQuery ? `<a href="#" onclick="handleSearch(''); return false;">[clear]</a>` : ""}
-    </font>
-    </center>
+    </div>
 
     <hr>
 
-    <center>
-    <form onsubmit="addBook(); return false;">
-      <font size="2">Add book (ISBN or keyword):</font>
-      <input type="text" id="add-input" size="25">
+    <form class="add-form" onsubmit="addBook(); return false;">
+      <font size="2">Add book (ISBN or keyword):</font><br>
+      <input type="text" id="add-input" class="add-input" placeholder="ISBN or title...">
       <input type="submit" value="Add">
-      <font size="2" id="add-status"></font>
+      <div id="add-status" style="font-size:12px; margin-top:5px;"></div>
     </form>
-    </center>
 
     <hr>
 
     ${
       genres.length > 0
         ? `
-    <center>
-    <font size="2">
+    <div class="filter-section">
     <b>Genres:</b>
     ${!currentGenre ? "[<b>All</b>]" : '<a href="#" onclick="setGenre(null); return false;">All</a>'} |
     ${genres
@@ -149,9 +144,7 @@ function render() {
           : `<a href="#" onclick="setGenre('${g.genre}'); return false;">${g.genre}</a> (${g.count})`
       )
       .join(" | ")}
-    </font>
-    </center>
-    <br>
+    </div>
     `
         : ""
     }
@@ -159,8 +152,7 @@ function render() {
     ${
       getCultureCounts().length > 0
         ? `
-    <center>
-    <font size="2">
+    <div class="filter-section">
     <b>Cultures:</b>
     ${!currentCulture ? "[<b>All</b>]" : '<a href="#" onclick="setCulture(null); return false;">All</a>'} |
     ${getCultureCounts()
@@ -170,42 +162,40 @@ function render() {
           : `<a href="#" onclick="setCulture('${c.culture}'); return false;">${c.culture}</a> (${c.count})`
       )
       .join(" | ")}
-    </font>
-    </center>
-    <br>
+    </div>
     `
         : ""
     }
 
-    <table border="1" cellpadding="8" cellspacing="0" bgcolor="#ffffff">
+    <div class="table-scroll">
+    <table class="data-table">
       <tr bgcolor="#cccccc">
-        <th align="left"><font face="Times New Roman, serif">Title</font></th>
-        <th align="left"><font face="Times New Roman, serif">Author</font></th>
-        <th align="center"><font face="Times New Roman, serif">Year</font></th>
-        <th align="center"><font face="Times New Roman, serif">Status</font></th>
-        <th align="center"><font face="Times New Roman, serif">Info</font></th>
-        <th align="center"><font face="Times New Roman, serif">Links</font></th>
-        <th align="center"><font face="Times New Roman, serif">Actions</font></th>
+        <th align="left">Title</th>
+        <th align="left">Author</th>
+        <th align="center">Year</th>
+        <th align="center">Status</th>
+        <th align="center">Info</th>
+        <th align="center">Links</th>
+        <th align="center">Actions</th>
       </tr>
       ${filtered.map(renderBook).join("")}
     </table>
+    </div>
 
     <hr>
 
-    <font size="2" face="Courier New, monospace">
+    <div class="commands">
     <b>Commands:</b><br>
     npm run import - Import from Goodreads CSV<br>
     npm run refresh:library 200 - Check library<br>
     npm run refresh:ratings 200 - Fetch ratings<br>
     npm run refresh:genres 200 - Fetch genres
-    </font>
+    </div>
 
     <hr>
-    <center>
-    <font size="1" face="Times New Roman, serif">
+    <div class="footer">
     <i>Last updated: ${new Date().toLocaleDateString()}</i>
-    </font>
-    </center>
+    </div>
   `;
 }
 
@@ -416,11 +406,7 @@ function showEditionsModal(bookTitle: string, editions: Edition[], holdBtn: HTML
 
   const modal = document.createElement("div");
   modal.id = "editions-modal";
-  modal.style.cssText = `
-    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center;
-    z-index: 1000;
-  `;
+  modal.className = "modal-overlay";
 
   const formatBranches = (branches: Edition["branches"]) => {
     return branches.map(b => {
@@ -472,10 +458,11 @@ function showEditionsModal(bookTitle: string, editions: Edition[], holdBtn: HTML
   }).join("");
 
   modal.innerHTML = `
-    <div style="background: white; padding: 20px; max-width: 800px; max-height: 80vh; overflow-y: auto; border: 2px solid black;">
+    <div class="modal-content">
       <h3 style="margin-top: 0;">${escapeHtml(bookTitle)} - ${editions.length} edition${editions.length === 1 ? "" : "s"} found</h3>
       <form id="edition-form">
-        <table border="1" cellpadding="5" cellspacing="0" width="100%">
+        <div class="table-scroll">
+        <table class="data-table">
           <tr bgcolor="#cccccc">
             <th width="30"></th>
             <th align="left">Edition</th>
@@ -484,11 +471,11 @@ function showEditionsModal(bookTitle: string, editions: Edition[], holdBtn: HTML
           </tr>
           ${editionRows}
         </table>
-        <br>
-        <center>
-          <input type="submit" value="Place Hold" style="font-size: 14px; padding: 5px 20px;">
-          <input type="button" value="Cancel" onclick="closeEditionsModal()" style="font-size: 14px; padding: 5px 20px;">
-        </center>
+        </div>
+        <div class="modal-buttons">
+          <input type="submit" value="Place Hold">
+          <input type="button" value="Cancel" onclick="closeEditionsModal()">
+        </div>
       </form>
     </div>
   `;
@@ -592,15 +579,13 @@ function renderBook(book: Book): string {
   const bibId = book.catalogUrl ? book.catalogUrl.split("/").pop() : null;
 
   return `
-    <tr${book.pinned ? ' bgcolor="#ffffcc"' : ""}>
+    <tr${book.pinned ? ' class="row-pinned"' : ""}>
       <td>
-        <font face="Times New Roman, serif">
-          ${book.pinned ? "<b>* " : ""}${escapeHtml(book.title)}${book.pinned ? "</b>" : ""}
-        </font>
+        ${book.pinned ? "<b>* " : ""}${escapeHtml(book.title)}${book.pinned ? "</b>" : ""}
         <br>
-        <input type="text" size="30" placeholder="Add notes..." value="${escapeHtml(book.notes || "")}" onchange="saveNotes('${book.bookId}', this.value)" style="font-size:10px; color:#666;">
+        <input type="text" class="notes-input" placeholder="Add notes..." value="${escapeHtml(book.notes || "")}" onchange="saveNotes('${book.bookId}', this.value)">
       </td>
-      <td><font face="Times New Roman, serif" size="2">${escapeHtml(book.author || "")}</font></td>
+      <td><font size="2">${escapeHtml(book.author || "")}</font></td>
       <td align="center"><font size="2">${book.publishYear || ""}</font></td>
       <td align="center">
         <font color="${statusColor}"><b>${statusText}</b></font>
@@ -623,11 +608,11 @@ function renderBook(book: Book): string {
           ${isbn ? `<br><a href="https://www.thriftbooks.com/browse/?b.search=${isbn}" target="_blank">ThriftBooks</a>` : ""}
         </font>
       </td>
-      <td align="center">
-        <input type="button" value="${book.pinned ? "Unpin" : "Pin"}" onclick="togglePinBook('${book.bookId}')" style="font-size:10px">
-        <input type="button" value="Refresh" onclick="refreshBook('${book.bookId}', event)" style="font-size:10px">
-        ${!isNotPhysicalBook(book) && book.libraryStatus && book.libraryStatus !== "NOT_FOUND" ? `<input type="button" value="Hold" onclick="holdBook('${escapeHtml(book.title.replace(/'/g, "\\\'"))}', '${escapeHtml((book.author || "").replace(/'/g, "\\\'"))}', event)" style="font-size:10px">` : ""}
-        <input type="button" value="X" onclick="deleteBookById('${book.bookId}')" style="font-size:10px" title="Delete">
+      <td align="center" style="white-space:nowrap">
+        <input type="button" class="action-btn" value="${book.pinned ? "Unpin" : "Pin"}" onclick="togglePinBook('${book.bookId}')">
+        <input type="button" class="action-btn" value="Refresh" onclick="refreshBook('${book.bookId}', event)">
+        ${!isNotPhysicalBook(book) && book.libraryStatus && book.libraryStatus !== "NOT_FOUND" ? `<input type="button" class="action-btn" value="Hold" onclick="holdBook('${escapeHtml(book.title.replace(/'/g, "\\\'"))}', '${escapeHtml((book.author || "").replace(/'/g, "\\\'"))}', event)">` : ""}
+        <input type="button" class="action-btn" value="X" onclick="deleteBookById('${book.bookId}')" title="Delete">
       </td>
     </tr>
   `;
@@ -640,19 +625,17 @@ function escapeHtml(str: string): string {
 function showLoginPrompt(callback: () => void) {
   const modal = document.createElement("div");
   modal.id = "login-modal";
-  modal.style.cssText = `
-    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center;
-    z-index: 1000;
-  `;
+  modal.className = "modal-overlay";
   modal.innerHTML = `
-    <div style="background: white; padding: 20px; border: 2px solid black;">
+    <div class="modal-content" style="max-width: 300px;">
       <form id="login-form">
-        <font face="Times New Roman, serif">Password:</font>
-        <input type="password" id="login-password" size="15">
-        <input type="submit" value="OK">
-        <input type="button" value="Cancel" onclick="closeLoginModal()">
-        <div id="login-error" style="color: red; font-size: 12px; margin-top: 5px;"></div>
+        <b>Password:</b><br>
+        <input type="password" id="login-password" class="search-input" style="width:100%; margin: 10px 0;">
+        <div class="modal-buttons">
+          <input type="submit" value="OK">
+          <input type="button" value="Cancel" onclick="closeLoginModal()">
+        </div>
+        <div id="login-error" style="color: red; font-size: 12px; margin-top: 5px; text-align:center;"></div>
       </form>
     </div>
   `;

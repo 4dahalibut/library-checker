@@ -26,20 +26,21 @@ async function loadHolds() {
     }
 
     document.getElementById("app")!.innerHTML = `
-      <table border="1" cellpadding="8" cellspacing="0" bgcolor="#ffffff">
+      <div class="table-scroll">
+      <table class="data-table">
         <tr bgcolor="#cccccc">
-          <th align="left"><font face="Times New Roman, serif">Title</font></th>
-          <th align="left"><font face="Times New Roman, serif">Author</font></th>
-          <th align="center"><font face="Times New Roman, serif">Format</font></th>
-          <th align="center"><font face="Times New Roman, serif">Status</font></th>
-          <th align="center"><font face="Times New Roman, serif">Action</font></th>
+          <th align="left">Title</th>
+          <th align="left">Author</th>
+          <th align="center">Format</th>
+          <th align="center">Status</th>
+          <th align="center">Action</th>
         </tr>
         ${holds
           .map(
             (h) => `
           <tr id="hold-${h.holdId}">
-            <td><font face="Times New Roman, serif">${escapeHtml(h.title)}</font></td>
-            <td><font face="Times New Roman, serif" size="2">${escapeHtml(h.author)}</font></td>
+            <td>${escapeHtml(h.title)}</td>
+            <td><font size="2">${escapeHtml(h.author)}</font></td>
             <td align="center"><font size="2">${h.format} ${h.year}</font></td>
             <td align="center">
               <font color="${h.status === "ready" ? "green" : h.status === "in_transit" ? "#cc9900" : "gray"}">
@@ -47,13 +48,14 @@ async function loadHolds() {
               </font>
             </td>
             <td align="center">
-              <input type="button" value="Cancel" onclick="cancelHold('${h.holdId}', '${h.bibId}')" style="font-size:10px">
+              <input type="button" class="action-btn" value="Cancel" onclick="cancelHold('${h.holdId}', '${h.bibId}')">
             </td>
           </tr>
         `
           )
           .join("")}
       </table>
+      </div>
     `;
   } catch {
     document.getElementById("app")!.innerHTML = '<center><font color="red">Error loading holds</font></center>';
