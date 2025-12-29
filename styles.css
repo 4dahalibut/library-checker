@@ -78,7 +78,6 @@ h1 {
 /* Data tables */
 .data-table {
   width: 100%;
-  min-width: 600px;
   border-collapse: collapse;
   background-color: #ffffff;
   border: 1px solid #000;
@@ -202,20 +201,19 @@ h1 {
     font-size: 1.4em;
   }
 
-  /* Controls - big tappable pills */
+  /* Controls - compact pills */
   .controls {
-    font-size: 16px;
-    line-height: 1.4;
+    font-size: 13px;
+    line-height: 1.6;
   }
 
   .controls a {
     display: inline-block;
-    padding: 14px 18px;
+    padding: 6px 10px;
     background: #ddd;
-    margin: 4px;
-    border-radius: 8px;
+    margin: 2px;
+    border-radius: 4px;
     text-decoration: none;
-    font-weight: 500;
   }
 
   .controls a:active {
@@ -246,20 +244,21 @@ h1 {
     font-weight: bold;
   }
 
-  /* Genre/culture filters - big tappable pills */
+  /* Genre/culture filters - scrollable */
   .filter-section {
     overflow-x: auto;
     white-space: nowrap;
     -webkit-overflow-scrolling: touch;
-    padding: 12px 0;
+    padding: 8px 0;
+    font-size: 12px;
   }
 
   .filter-section a {
     display: inline-block;
-    padding: 14px 18px;
+    padding: 5px 8px;
     background: #ddd;
-    margin: 4px;
-    border-radius: 8px;
+    margin: 2px;
+    border-radius: 4px;
     text-decoration: none;
   }
 
@@ -307,23 +306,31 @@ h1 {
     font-weight: bold;
   }
 
-  /* Table cells */
+  /* Table - contained width */
+  .table-scroll {
+    margin: 0 -8px;
+    padding: 0 8px;
+  }
+
+  .data-table {
+    font-size: 12px;
+  }
+
   .data-table th,
   .data-table td {
-    padding: 12px 8px;
-    font-size: 15px;
+    padding: 8px 4px;
   }
 
-  /* Radio buttons much bigger */
+  /* Radio buttons bigger */
   .data-table input[type="radio"] {
-    width: 28px;
-    height: 28px;
+    width: 24px;
+    height: 24px;
   }
 
-  /* Links in table need bigger tap targets */
+  /* Links in table */
   .data-table a {
     display: inline-block;
-    padding: 8px 4px;
+    padding: 4px 2px;
   }
 
   .commands {
