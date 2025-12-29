@@ -51,7 +51,16 @@ interface Genre {
   count: number;
 }
 
+interface Recommendation {
+  id: number;
+  title: string;
+  author: string | null;
+  recommendedBy: string;
+  createdAt: string;
+}
+
 let allBooks: Book[] = [];
+let recommendations: Recommendation[] = [];
 let stats: Stats = { total: 0, available: 0, unavailable: 0, notFound: 0, unchecked: 0 };
 let genres: Genre[] = [];
 let currentFilter = "all";
@@ -61,11 +70,16 @@ let currentCulture: string | null = null;
 let searchQuery = "";
 
 async function loadBooks() {
-  const res = await fetch("/api/books");
-  const data = await res.json();
-  allBooks = data.books || [];
-  stats = data.stats || {};
-  genres = data.genres || [];
+  const [booksRes, recsRes] = await Promise.all([
+    fetch("/api/books"),
+    fetch("/api/recommendations"),
+  ]);
+  const booksData = await booksRes.json();
+  const recsData = await recsRes.json();
+  allBooks = booksData.books || [];
+  stats = booksData.stats || {};
+  genres = booksData.genres || [];
+  recommendations = recsData.recommendations || [];
   render();
 }
 
@@ -181,6 +195,39 @@ function render() {
       ${filtered.map(renderBook).join("")}
     </table>
     </div>
+
+    <hr>
+
+    <center><h3>Recommend a Book</h3></center>
+    <form class="add-form" onsubmit="submitRecommendation(); return false;">
+      <font size="2">Suggest a book for Josh to read:</font><br>
+      <input type="text" id="rec-title" class="add-input" placeholder="Book title" style="margin-bottom:5px;">
+      <input type="text" id="rec-author" class="add-input" placeholder="Author (optional)" style="margin-bottom:5px;">
+      <input type="text" id="rec-name" class="add-input" placeholder="Your name">
+      <input type="submit" value="Recommend">
+      <div id="rec-status" style="font-size:12px; margin-top:5px;"></div>
+    </form>
+
+    ${recommendations.length > 0 ? `
+    <br>
+    <center><b>Recommendations from friends:</b></center>
+    <div class="table-scroll">
+    <table class="data-table">
+      <tr bgcolor="#cccccc">
+        <th align="left">Title</th>
+        <th align="left">Author</th>
+        <th align="left">Recommended by</th>
+      </tr>
+      ${recommendations.map(r => `
+        <tr>
+          <td>${escapeHtml(r.title)}</td>
+          <td><font size="2">${escapeHtml(r.author || "")}</font></td>
+          <td><font size="2">${escapeHtml(r.recommendedBy)}</font></td>
+        </tr>
+      `).join("")}
+    </table>
+    </div>
+    ` : ""}
 
     <hr>
 
@@ -670,6 +717,44 @@ function closeLoginModal() {
   if (modal) modal.remove();
 }
 
+async function submitRecommendation() {
+  const titleInput = document.getElementById("rec-title") as HTMLInputElement;
+  const authorInput = document.getElementById("rec-author") as HTMLInputElement;
+  const nameInput = document.getElementById("rec-name") as HTMLInputElement;
+  const status = document.getElementById("rec-status")!;
+
+  const title = titleInput.value.trim();
+  const author = authorInput.value.trim();
+  const recommendedBy = nameInput.value.trim();
+
+  if (!title || !recommendedBy) {
+    status.textContent = "Please enter a title and your name";
+    return;
+  }
+
+  status.textContent = "Submitting...";
+  try {
+    const res = await fetch("/api/recommendations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, author: author || null, recommendedBy }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      status.textContent = "Thanks for the recommendation!";
+      titleInput.value = "";
+      authorInput.value = "";
+      nameInput.value = "";
+      recommendations.unshift(data.recommendation);
+      render();
+    } else {
+      status.textContent = data.error || "Error submitting";
+    }
+  } catch {
+    status.textContent = "Error submitting recommendation";
+  }
+}
+
 async function checkAuthAndRun(action: () => void) {
   const res = await fetch("/api/status");
   const data = await res.json();
@@ -696,6 +781,7 @@ declare global {
     saveNotes: typeof saveNotes;
     closeEditionsModal: typeof closeEditionsModal;
     closeLoginModal: typeof closeLoginModal;
+    submitRecommendation: typeof submitRecommendation;
   }
 }
 
@@ -712,5 +798,6 @@ window.holdBook = holdBook;
 window.saveNotes = saveNotes;
 window.closeEditionsModal = closeEditionsModal;
 window.closeLoginModal = closeLoginModal;
+window.submitRecommendation = submitRecommendation;
 
 loadBooks();

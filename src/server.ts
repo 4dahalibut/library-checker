@@ -2,7 +2,7 @@ import express from "express";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import "dotenv/config";
-import { getAllBooks, getStats, getAllGenres, updateLibraryData, addBook, deleteBook, togglePin, updateNotes, updateNumRatings, db } from "./db.js";
+import { getAllBooks, getStats, getAllGenres, updateLibraryData, addBook, deleteBook, togglePin, updateNotes, updateNumRatings, getRecommendations, addRecommendation, deleteRecommendation, db } from "./db.js";
 import { searchLibrary, searchEditions, searchByISBN, searchByTitleAuthor } from "./library.js";
 import { getHolds, placeHold, cancelHold } from "./holds.js";
 import { fetchNumRatings } from "./goodreads.js";
@@ -59,6 +59,28 @@ app.get("/api/holds", async (_req, res) => {
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch holds" });
   }
+});
+
+// Public recommendations routes
+app.get("/api/recommendations", (_req, res) => {
+  const recommendations = getRecommendations();
+  res.json({ recommendations });
+});
+
+app.post("/api/recommendations", (req, res) => {
+  const { title, author, recommendedBy } = req.body;
+  if (!title || !recommendedBy) {
+    res.status(400).json({ error: "Title and your name are required" });
+    return;
+  }
+  const recommendation = addRecommendation(title, author || null, recommendedBy);
+  res.json({ success: true, recommendation });
+});
+
+app.delete("/api/recommendations/:id", authMiddleware, (req, res) => {
+  const id = parseInt(req.params.id);
+  deleteRecommendation(id);
+  res.json({ success: true });
 });
 
 // Protected routes - require authentication

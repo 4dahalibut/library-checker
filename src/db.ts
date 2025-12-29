@@ -77,6 +77,17 @@ try {
   // Column already exists
 }
 
+// Create recommendations table
+db.exec(`
+  CREATE TABLE IF NOT EXISTS recommendations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    author TEXT,
+    recommended_by TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )
+`);
+
 export interface Book {
   bookId: string;
   title: string;
@@ -320,6 +331,43 @@ export function getStats() {
     notFound: notFound.count,
     unchecked: unchecked.count,
   };
+}
+
+// Recommendations
+export interface Recommendation {
+  id: number;
+  title: string;
+  author: string | null;
+  recommendedBy: string;
+  createdAt: string;
+}
+
+export function getRecommendations(): Recommendation[] {
+  return db.prepare(`
+    SELECT id, title, author, recommended_by as recommendedBy, created_at as createdAt
+    FROM recommendations
+    ORDER BY created_at DESC
+  `).all() as Recommendation[];
+}
+
+export function addRecommendation(title: string, author: string | null, recommendedBy: string): Recommendation {
+  const createdAt = new Date().toISOString();
+  const result = db.prepare(`
+    INSERT INTO recommendations (title, author, recommended_by, created_at)
+    VALUES (?, ?, ?, ?)
+  `).run(title, author, recommendedBy, createdAt);
+
+  return {
+    id: result.lastInsertRowid as number,
+    title,
+    author,
+    recommendedBy,
+    createdAt,
+  };
+}
+
+export function deleteRecommendation(id: number): void {
+  db.prepare(`DELETE FROM recommendations WHERE id = ?`).run(id);
 }
 
 export { db };
