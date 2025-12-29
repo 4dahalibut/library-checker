@@ -204,8 +204,6 @@ function render() {
     <center>
     <font size="1" face="Times New Roman, serif">
     <i>Last updated: ${new Date().toLocaleDateString()}</i>
-    &nbsp;|&nbsp;
-    <a href="#" onclick="doLogout(); return false;">Logout</a>
     </font>
     </center>
   `;
@@ -300,35 +298,37 @@ async function addBook() {
   const query = input.value.trim();
   if (!query) return;
 
-  // Check if it looks like an ISBN (10 or 13 digits, possibly with hyphens)
-  const cleanedQuery = query.replace(/-/g, "");
-  const isISBN = /^\d{10}(\d{3})?$/.test(cleanedQuery);
+  checkAuthAndRun(async () => {
+    // Check if it looks like an ISBN (10 or 13 digits, possibly with hyphens)
+    const cleanedQuery = query.replace(/-/g, "");
+    const isISBN = /^\d{10}(\d{3})?$/.test(cleanedQuery);
 
-  status.textContent = "Looking up...";
-  try {
-    const res = await fetch("/api/add-book", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(isISBN ? { isbn: cleanedQuery } : { keyword: query }),
-    });
-    const data = await res.json();
-    if (data.success) {
-      status.textContent = "Added: " + data.title;
-      input.value = "";
-      // Reset filters and scroll to top to see the new book
-      currentFilter = "all";
-      currentSort = "date";
-      currentGenre = null;
-      currentCulture = null;
-      searchQuery = "";
-      await loadBooks();
-      window.scrollTo(0, 0);
-    } else {
-      status.textContent = data.error || "Not found";
+    status.textContent = "Looking up...";
+    try {
+      const res = await fetch("/api/add-book", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(isISBN ? { isbn: cleanedQuery } : { keyword: query }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        status.textContent = "Added: " + data.title;
+        input.value = "";
+        // Reset filters and scroll to top to see the new book
+        currentFilter = "all";
+        currentSort = "date";
+        currentGenre = null;
+        currentCulture = null;
+        searchQuery = "";
+        await loadBooks();
+        window.scrollTo(0, 0);
+      } else {
+        status.textContent = data.error || "Not found";
+      }
+    } catch {
+      status.textContent = "Error adding book";
     }
-  } catch {
-    status.textContent = "Error adding book";
-  }
+  });
 }
 
 async function deleteBookById(bookId: string) {
@@ -373,31 +373,34 @@ async function refreshBook(bookId: string, event: Event) {
 
 async function holdBook(title: string, author: string, event: Event) {
   const btn = event.target as HTMLInputElement;
-  btn.disabled = true;
-  btn.value = "...";
 
-  try {
-    // Search for all editions
-    const query = `${title} ${author}`;
-    const res = await fetch(`/api/editions?q=${encodeURIComponent(query)}`);
-    const data = await res.json();
-    const editions: Edition[] = data.editions || [];
+  checkAuthAndRun(async () => {
+    btn.disabled = true;
+    btn.value = "...";
 
-    if (editions.length === 0) {
-      alert("No editions found in library");
+    try {
+      // Search for all editions
+      const query = `${title} ${author}`;
+      const res = await fetch(`/api/editions?q=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      const editions: Edition[] = data.editions || [];
+
+      if (editions.length === 0) {
+        alert("No editions found in library");
+        btn.value = "Hold";
+        btn.disabled = false;
+        return;
+      }
+
+      // Show modal with editions
+      showEditionsModal(title, editions, btn);
+    } catch (e) {
+      console.error(e);
+      alert("Error searching for editions");
       btn.value = "Hold";
       btn.disabled = false;
-      return;
     }
-
-    // Show modal with editions
-    showEditionsModal(title, editions, btn);
-  } catch (e) {
-    console.error(e);
-    alert("Error searching for editions");
-    btn.value = "Hold";
-    btn.disabled = false;
-  }
+  });
 }
 
 function showEditionsModal(bookTitle: string, editions: Edition[], holdBtn: HTMLInputElement) {
@@ -626,67 +629,63 @@ function escapeHtml(str: string): string {
   return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-function renderLogin(error?: string) {
-  document.getElementById("app")!.innerHTML = `
-    <center>
-    <br><br>
-    <form onsubmit="doLogin(); return false;">
-      <table border="0" cellpadding="5">
-        <tr>
-          <td align="right"><font face="Times New Roman, serif">Username:</font></td>
-          <td><input type="text" id="login-username" size="20"></td>
-        </tr>
-        <tr>
-          <td align="right"><font face="Times New Roman, serif">Password:</font></td>
-          <td><input type="password" id="login-password" size="20"></td>
-        </tr>
-        <tr>
-          <td></td>
-          <td><input type="submit" value="Login"></td>
-        </tr>
-        ${error ? `<tr><td></td><td><font color="red" size="2">${error}</font></td></tr>` : ""}
-      </table>
-    </form>
-    </center>
+function showLoginPrompt(callback: () => void) {
+  const modal = document.createElement("div");
+  modal.id = "login-modal";
+  modal.style.cssText = `
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center;
+    z-index: 1000;
   `;
-}
+  modal.innerHTML = `
+    <div style="background: white; padding: 20px; border: 2px solid black;">
+      <form id="login-form">
+        <font face="Times New Roman, serif">Password:</font>
+        <input type="password" id="login-password" size="15">
+        <input type="submit" value="OK">
+        <input type="button" value="Cancel" onclick="closeLoginModal()">
+        <div id="login-error" style="color: red; font-size: 12px; margin-top: 5px;"></div>
+      </form>
+    </div>
+  `;
 
-async function doLogin() {
-  const username = (document.getElementById("login-username") as HTMLInputElement).value;
-  const password = (document.getElementById("login-password") as HTMLInputElement).value;
-
-  try {
-    const res = await fetch("/api/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    });
-    if (res.ok) {
-      loadBooks();
-    } else {
-      renderLogin("Invalid credentials");
+  const form = modal.querySelector("#login-form") as HTMLFormElement;
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const password = (document.getElementById("login-password") as HTMLInputElement).value;
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      if (res.ok) {
+        closeLoginModal();
+        callback();
+      } else {
+        document.getElementById("login-error")!.textContent = "Wrong password";
+      }
+    } catch {
+      document.getElementById("login-error")!.textContent = "Login failed";
     }
-  } catch {
-    renderLogin("Login failed");
-  }
+  });
+
+  document.body.appendChild(modal);
+  (document.getElementById("login-password") as HTMLInputElement).focus();
 }
 
-async function doLogout() {
-  await fetch("/api/logout", { method: "POST" });
-  renderLogin();
+function closeLoginModal() {
+  const modal = document.getElementById("login-modal");
+  if (modal) modal.remove();
 }
 
-async function checkAuth() {
-  try {
-    const res = await fetch("/api/status");
-    const data = await res.json();
-    if (data.authenticated) {
-      loadBooks();
-    } else {
-      renderLogin();
-    }
-  } catch {
-    renderLogin();
+async function checkAuthAndRun(action: () => void) {
+  const res = await fetch("/api/status");
+  const data = await res.json();
+  if (data.authenticated) {
+    action();
+  } else {
+    showLoginPrompt(action);
   }
 }
 
@@ -705,8 +704,7 @@ declare global {
     holdBook: typeof holdBook;
     saveNotes: typeof saveNotes;
     closeEditionsModal: typeof closeEditionsModal;
-    doLogin: typeof doLogin;
-    doLogout: typeof doLogout;
+    closeLoginModal: typeof closeLoginModal;
   }
 }
 
@@ -722,7 +720,6 @@ window.refreshBook = refreshBook;
 window.holdBook = holdBook;
 window.saveNotes = saveNotes;
 window.closeEditionsModal = closeEditionsModal;
-window.doLogin = doLogin;
-window.doLogout = doLogout;
+window.closeLoginModal = closeLoginModal;
 
-checkAuth();
+loadBooks();

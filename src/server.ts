@@ -19,8 +19,8 @@ app.use(express.json());
 
 // Public auth routes
 app.post("/api/login", (req, res) => {
-  const { username, password } = req.body;
-  if (validateCredentials(username, password)) {
+  const { password } = req.body;
+  if (validateCredentials(password)) {
     const sessionId = createSession();
     res.setHeader("Set-Cookie", getSessionCookie(sessionId, isProduction));
     res.json({ success: true });
@@ -44,15 +44,15 @@ app.get("/api/status", (req, res) => {
   res.json({ authenticated });
 });
 
-// Protected routes - require authentication
-app.get("/api/books", authMiddleware, (_req, res) => {
+// Public read routes
+app.get("/api/books", (_req, res) => {
   const books = getAllBooks();
   const stats = getStats();
   const genres = getAllGenres();
   res.json({ books, stats, genres });
 });
 
-app.get("/api/holds", authMiddleware, async (_req, res) => {
+app.get("/api/holds", async (_req, res) => {
   try {
     const holds = await getHolds();
     res.json({ holds });
@@ -61,6 +61,7 @@ app.get("/api/holds", authMiddleware, async (_req, res) => {
   }
 });
 
+// Protected routes - require authentication
 app.post("/api/hold/:bibId", authMiddleware, async (req, res) => {
   const { bibId } = req.params;
   try {
@@ -72,7 +73,7 @@ app.post("/api/hold/:bibId", authMiddleware, async (req, res) => {
   }
 });
 
-app.get("/api/editions", authMiddleware, async (req, res) => {
+app.get("/api/editions", async (req, res) => {
   const { q } = req.query;
   if (!q || typeof q !== "string") {
     res.status(400).json({ error: "Query parameter 'q' required" });

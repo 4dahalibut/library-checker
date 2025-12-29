@@ -2,9 +2,8 @@ import { randomBytes, timingSafeEqual } from "crypto";
 import { Request, Response, NextFunction } from "express";
 import { db } from "./db.js";
 
-const USERNAME = process.env.AUTH_USERNAME || "josh";
-const PASSWORD = process.env.AUTH_PASSWORD || "password";
-const EXPIRATION_DAYS = parseInt(process.env.SESSION_EXPIRATION_DAYS || "30");
+const PASSWORD = process.env.AUTH_PASSWORD || "12327791";
+const EXPIRATION_DAYS = parseInt(process.env.SESSION_EXPIRATION_DAYS || "60");
 
 // Initialize sessions table
 db.exec(`
@@ -49,9 +48,7 @@ export function deleteSession(sessionId: string): void {
   db.prepare(`DELETE FROM sessions WHERE session_id = ?`).run(sessionId);
 }
 
-export function validateCredentials(username: string, password: string): boolean {
-  const usernameMatch = username === USERNAME;
-
+export function validateCredentials(password: string): boolean {
   // Constant-time comparison for password
   const passwordBuffer = Buffer.from(password);
   const expectedBuffer = Buffer.from(PASSWORD);
@@ -60,8 +57,7 @@ export function validateCredentials(username: string, password: string): boolean
     return false;
   }
 
-  const passwordMatch = timingSafeEqual(passwordBuffer, expectedBuffer);
-  return usernameMatch && passwordMatch;
+  return timingSafeEqual(passwordBuffer, expectedBuffer);
 }
 
 export function parseCookies(cookieHeader: string | undefined): Record<string, string> {
