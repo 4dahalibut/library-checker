@@ -35,8 +35,12 @@ RUN npm ci --omit=dev
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
 
-# Copy data directory (includes SQLite database)
-COPY data ./data
+# Copy seed data (will be copied to volume on first run)
+COPY data ./seed-data
+
+# Copy entrypoint script
+COPY entrypoint.sh ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh
 
 # Set environment
 ENV NODE_ENV=production
@@ -50,4 +54,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD node -e "fetch('http://localhost:80/api/books').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 
 # Start the application
-CMD ["node", "dist/server.js"]
+CMD ["./entrypoint.sh"]
