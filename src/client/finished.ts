@@ -35,7 +35,7 @@ function render() {
         <input type="text" id="add-title" class="add-input" placeholder="Book title" style="flex:2;">
         <input type="text" id="add-author" class="add-input" placeholder="Author" style="flex:1;">
       </div>
-      <input type="text" id="add-vibe" class="add-input" placeholder="Vibe check (e.g. cozy, intense, thought-provoking)" style="margin-bottom:5px;">
+      <input type="text" id="add-vibe" class="add-input" placeholder="Vibe check (e.g. cozy, intense, thought-provoking)" style="margin-bottom:5px; width:100%; box-sizing:border-box;">
       <textarea id="add-review" class="add-input" placeholder="Full review (optional)" rows="6" style="margin-bottom:5px; width:100%; box-sizing:border-box;"></textarea>
       <input type="submit" value="Add">
       <div id="add-status" style="font-size:12px; margin-top:5px;"></div>
