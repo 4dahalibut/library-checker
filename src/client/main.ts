@@ -108,7 +108,7 @@ function render() {
 
   document.getElementById("app")!.innerHTML = `
     ${isLoggedIn ? `
-    <center><input type="button" class="action-btn" value="Logout" onclick="doLogout()"></center>
+    <center><a href="#" onclick="doLogout(); return false;">[Logout]</a></center>
     <hr>
     ` : `
     <center><h3>Recommend a Book</h3></center>

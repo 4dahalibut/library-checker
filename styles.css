@@ -96,6 +96,11 @@ h1 {
   text-align: left;
 }
 
+/* Zebra striping for readability */
+.data-table tr:nth-child(even):not(.row-pinned) {
+  background-color: #f8f8f8;
+}
+
 /* Action buttons */
 .action-btn {
   font-size: 10px;
@@ -133,9 +138,11 @@ h1 {
 .filter-section {
   text-align: center;
   font-size: 13px;
-  line-height: 1.8;
+  line-height: 2;
   margin: 10px 0;
   position: relative;
+  word-spacing: 0.15em;
+  letter-spacing: 0.01em;
 }
 
 /* Scroll indicator for filter sections */
@@ -224,6 +231,22 @@ h1 {
     font-size: 1.4em;
   }
 
+  /* Stats table - wrap on mobile */
+  .stats-table td {
+    padding: 5px 4px;
+  }
+
+  .stats-table tr {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .stats-table td {
+    flex: 0 0 auto;
+    min-width: 60px;
+  }
+
   /* Controls - compact pills */
   .controls {
     font-size: 13px;
@@ -267,13 +290,25 @@ h1 {
     font-weight: bold;
   }
 
-  /* Genre/culture filters - scrollable */
+  /* Genre/culture filters - scrollable with scroll indicator */
   .filter-section {
     overflow-x: auto;
     white-space: nowrap;
     -webkit-overflow-scrolling: touch;
     padding: 8px 0;
     font-size: 12px;
+    position: relative;
+  }
+
+  .filter-section::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 25px;
+    background: linear-gradient(to right, transparent, #f0f0f0);
+    pointer-events: none;
   }
 
   .filter-section a {
@@ -329,10 +364,22 @@ h1 {
     font-weight: bold;
   }
 
-  /* Table - contained width */
+  /* Table - contained width with scroll indicator */
   .table-scroll {
     margin: 0 -8px;
     padding: 0 8px;
+    position: relative;
+  }
+
+  .table-scroll::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 20px;
+    background: linear-gradient(to right, transparent, rgba(240, 240, 240, 0.9));
+    pointer-events: none;
   }
 
   .data-table {

@@ -245,34 +245,42 @@ async function parseHolds(html: string): Promise<Hold[]> {
   return holds;
 }
 
-// Cache session for 10 minutes
+// Cache session for 30 minutes
 let cachedSession: LoginResult | null = null;
 let sessionExpiry = 0;
 
-async function getSession(): Promise<LoginResult> {
-  if (cachedSession && Date.now() < sessionExpiry) {
+async function getSession(forceRefresh = false): Promise<LoginResult> {
+  if (!forceRefresh && cachedSession && Date.now() < sessionExpiry) {
     return cachedSession;
   }
   const { token, cookies } = await getLoginPage();
   cachedSession = await login(token, cookies);
-  sessionExpiry = Date.now() + 10 * 60 * 1000; // 10 minutes
+  sessionExpiry = Date.now() + 30 * 60 * 1000; // 30 minutes
   return cachedSession;
+}
+
+function clearSession() {
+  cachedSession = null;
+  sessionExpiry = 0;
 }
 
 export async function getHolds(): Promise<Hold[]> {
   const session = await getSession();
   const html = await fetchHoldsPage(session.cookies);
+
+  // If session expired, page will have login form - retry with fresh session
+  if (html.includes('id="user_pin"') || html.includes('Sign In')) {
+    clearSession();
+    const freshSession = await getSession(true);
+    const freshHtml = await fetchHoldsPage(freshSession.cookies);
+    return parseHolds(freshHtml);
+  }
+
   return parseHolds(html);
 }
 
-export async function placeHold(bibId: string, branchId = "YQ"): Promise<{ success: boolean; message: string }> {
-  if (!BARCODE || !PIN || !ACCOUNT_ID) {
-    return { success: false, message: "Library credentials not configured" };
-  }
-
-  const session = await getSession();
-
-  const response = await fetch(`${GATEWAY_URL}/holds?locale=en-US`, {
+async function doPlaceHold(bibId: string, branchId: string, session: LoginResult): Promise<Response> {
+  return fetch(`${GATEWAY_URL}/holds?locale=en-US`, {
     method: "POST",
     headers: {
       "accept": "application/json",
@@ -296,6 +304,22 @@ export async function placeHold(bibId: string, branchId = "YQ"): Promise<{ succe
       },
     }),
   });
+}
+
+export async function placeHold(bibId: string, branchId = "YQ"): Promise<{ success: boolean; message: string }> {
+  if (!BARCODE || !PIN || !ACCOUNT_ID) {
+    return { success: false, message: "Library credentials not configured" };
+  }
+
+  let session = await getSession();
+  let response = await doPlaceHold(bibId, branchId, session);
+
+  // Retry with fresh session on auth error
+  if (response.status === 401 || response.status === 403) {
+    clearSession();
+    session = await getSession(true);
+    response = await doPlaceHold(bibId, branchId, session);
+  }
 
   const data = await response.json();
 
@@ -308,10 +332,8 @@ export async function placeHold(bibId: string, branchId = "YQ"): Promise<{ succe
   }
 }
 
-export async function cancelHold(holdId: string, metadataId: string): Promise<{ success: boolean; message: string }> {
-  const session = await getSession();
-
-  const response = await fetch(`${GATEWAY_URL}/holds?locale=en-US`, {
+async function doCancelHold(holdId: string, metadataId: string, session: LoginResult): Promise<Response> {
+  return fetch(`${GATEWAY_URL}/holds?locale=en-US`, {
     method: "DELETE",
     headers: {
       "accept": "application/json",
@@ -329,6 +351,18 @@ export async function cancelHold(holdId: string, metadataId: string): Promise<{ 
       metadataIds: [metadataId],
     }),
   });
+}
+
+export async function cancelHold(holdId: string, metadataId: string): Promise<{ success: boolean; message: string }> {
+  let session = await getSession();
+  let response = await doCancelHold(holdId, metadataId, session);
+
+  // Retry with fresh session on auth error
+  if (response.status === 401 || response.status === 403) {
+    clearSession();
+    session = await getSession(true);
+    response = await doCancelHold(holdId, metadataId, session);
+  }
 
   if (response.ok) {
     return { success: true, message: "Hold cancelled successfully" };
