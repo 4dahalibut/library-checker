@@ -35,9 +35,6 @@ RUN npm ci --omit=dev
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
 
-# Copy seed data (will be copied to volume on first run)
-COPY data ./seed-data
-
 # Copy entrypoint script
 COPY entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh
