@@ -308,3 +308,66 @@ button:focus-visible {
     --color-input-text: #213547;
   }
 }
+
+
+/* =============================================================================
+   9. MOBILE STYLES
+   ============================================================================= */
+
+@media (max-width: 480px) {
+  body {
+    padding: var(--spacing-xs);
+  }
+
+  #app {
+    padding: var(--spacing-xs);
+  }
+
+  h1 {
+    font-size: 1.75em;
+    margin-bottom: var(--spacing-md);
+  }
+
+  h2 {
+    font-size: 1.25em;
+  }
+
+  section {
+    padding: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+    border-radius: var(--border-radius);
+  }
+
+  /* Larger touch targets */
+  select, input, button {
+    padding: var(--spacing-md);
+    font-size: 16px; /* Prevents iOS zoom on focus */
+    min-height: 48px;
+  }
+
+  /* Time inputs side by side, full width */
+  .time-inputs {
+    justify-content: center;
+  }
+
+  .time-inputs input {
+    width: 70px;
+    padding: var(--spacing-md);
+  }
+
+  /* Table adjustments */
+  th, td {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    font-size: 0.9em;
+  }
+
+  /* Hide rank column header text on mobile */
+  th:first-child {
+    width: 2.5rem;
+  }
+
+  /* Stack form button full width */
+  button {
+    width: 100%;
+  }
+}
