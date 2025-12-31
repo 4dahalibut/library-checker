@@ -7,6 +7,8 @@ import { searchLibrary, searchEditions, searchByISBN, searchByTitleAuthor } from
 import { getHolds, placeHold, cancelHold } from "./holds.js";
 import { fetchNumRatings } from "./goodreads.js";
 import { authMiddleware, validateCredentials, createSession, deleteSession, verifySession, parseCookies, getSessionCookie, getClearSessionCookie } from "./auth.js";
+import { plankRouter } from "./plank/routes.js";
+import { plankDb } from "./plank/db.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -16,6 +18,18 @@ const PORT = parseInt(process.env.PORT || "3456");
 const isProduction = process.env.NODE_ENV === "production";
 
 app.use(express.json());
+
+// Hostname-based routing for plank app
+app.use((req, res, next) => {
+  const host = req.hostname;
+  if (host.startsWith("plank")) {
+    return plankRouter(req, res, next);
+  }
+  next();
+});
+
+// Also mount plank routes at /plank for dev access
+app.use("/plank", plankRouter);
 
 // Public auth routes
 app.post("/api/login", (req, res) => {
@@ -317,6 +331,20 @@ app.post("/api/refresh/:bookId", authMiddleware, async (req, res) => {
 // Serve static files in production
 if (process.env.NODE_ENV === "production") {
   const clientDist = join(__dirname, "client");
+  const plankDist = join(__dirname, "plank-client");
+
+  // Route static files and HTML based on hostname
+  app.use((req, res, next) => {
+    const host = req.hostname;
+    if (host.startsWith("plank")) {
+      if (req.path === "/" || !req.path.includes(".")) {
+        return res.sendFile(join(plankDist, "plank.html"));
+      }
+      return express.static(plankDist)(req, res, next);
+    }
+    next();
+  });
+
   app.use(express.static(clientDist));
 
   // Serve HTML pages (express.static handles file matches, this handles root path)
@@ -333,6 +361,7 @@ function shutdown() {
   console.log("Shutting down...");
   server.close(() => {
     db.close();
+    plankDb.close();
     process.exit(0);
   });
 }

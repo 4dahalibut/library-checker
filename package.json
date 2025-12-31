@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently \"tsx watch src/server.ts\" \"vite\"",
-    "build": "vite build && tsc",
+    "dev:plank": "concurrently \"tsx watch src/server.ts\" \"vite --config vite.plank.config.ts\"",
+    "build": "vite build && vite build --config vite.plank.config.ts && tsc",
     "start": "NODE_ENV=production node dist/server.js",
     "import": "tsx src/import-csv.ts",
     "refresh:library": "tsx src/refresh-library.ts",

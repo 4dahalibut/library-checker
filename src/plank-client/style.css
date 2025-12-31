@@ -1,0 +1,310 @@
+/* =============================================================================
+   PLANK LEADERBOARD STYLES
+
+   Hey! Want to make this prettier? Here's how this file is organized:
+
+   1. THEME VARIABLES - Colors, fonts, spacing (START HERE to change the look!)
+   2. BASE STYLES - Basic page setup
+   3. LAYOUT - Page structure and containers
+   4. TYPOGRAPHY - Headings and text
+   5. LEADERBOARD - The rankings table
+   6. FORM - The input form for recording times
+   7. MESSAGES - Success/error notifications
+   8. LIGHT MODE - Overrides for light theme
+
+   ============================================================================= */
+
+
+/* =============================================================================
+   1. THEME VARIABLES
+   Change these to customize the entire look!
+   ============================================================================= */
+
+:root {
+  /* -- COLORS -- */
+
+  /* Main background & text */
+  --color-background: #242424;
+  --color-text: rgba(255, 255, 255, 0.87);
+  --color-text-muted: #888;
+  --color-text-subtle: #666;
+
+  /* Cards/sections */
+  --color-card: #1a1a1a;
+
+  /* Borders & dividers */
+  --color-border: #444;
+  --color-border-light: #333;
+
+  /* Primary accent (buttons, focus states) */
+  --color-primary: #646cff;
+  --color-primary-hover: #535bf2;
+
+  /* Form inputs */
+  --color-input-bg: #2a2a2a;
+  --color-input-border: #444;
+  --color-input-text: white;
+
+  /* Feedback colors */
+  --color-success: #22c55e;
+  --color-success-bg: rgba(34, 197, 94, 0.2);
+  --color-error: #ef4444;
+  --color-error-bg: rgba(239, 68, 68, 0.2);
+
+  /* Medal colors (for top 3) */
+  --color-gold: rgba(255, 215, 0, 0.2);
+  --color-silver: rgba(192, 192, 192, 0.2);
+  --color-bronze: rgba(205, 127, 50, 0.2);
+
+
+  /* -- TYPOGRAPHY -- */
+  --font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  --font-size-base: 1rem;
+  --font-size-small: 0.85em;
+  --font-size-h1: 2.5em;
+  --font-size-h2: 1.5em;
+  --line-height: 1.5;
+
+
+  /* -- SPACING -- */
+  --spacing-xs: 0.5rem;
+  --spacing-sm: 0.75rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2rem;
+
+
+  /* -- BORDERS & CORNERS -- */
+  --border-radius: 8px;
+  --border-radius-lg: 12px;
+
+
+  /* -- LAYOUT -- */
+  --max-width: 600px;
+  --time-input-width: 80px;
+}
+
+
+/* =============================================================================
+   2. BASE STYLES
+   ============================================================================= */
+
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  font-family: var(--font-family);
+  line-height: var(--line-height);
+  font-weight: 400;
+  color-scheme: light dark;
+  color: var(--color-text);
+  background-color: var(--color-background);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  padding: var(--spacing-md);
+}
+
+
+/* =============================================================================
+   3. LAYOUT
+   ============================================================================= */
+
+#app {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: var(--spacing-md);
+}
+
+section {
+  margin-bottom: var(--spacing-xl);
+  padding: var(--spacing-lg);
+  background: var(--color-card);
+  border-radius: var(--border-radius-lg);
+}
+
+
+/* =============================================================================
+   4. TYPOGRAPHY
+   ============================================================================= */
+
+h1 {
+  font-size: var(--font-size-h1);
+  line-height: 1.1;
+  margin-bottom: var(--spacing-lg);
+  text-align: center;
+}
+
+h2 {
+  font-size: var(--font-size-h2);
+  margin-bottom: var(--spacing-md);
+  border-bottom: 2px solid var(--color-border);
+  padding-bottom: var(--spacing-xs);
+}
+
+.empty {
+  color: var(--color-text-subtle);
+  font-style: italic;
+  text-align: center;
+  padding: var(--spacing-xl);
+}
+
+
+/* =============================================================================
+   5. LEADERBOARD & TABLES
+   ============================================================================= */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th, td {
+  padding: var(--spacing-sm);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+th {
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  font-size: var(--font-size-small);
+}
+
+/* Medal rows - top 3 get special backgrounds */
+tr.gold td { background: linear-gradient(90deg, var(--color-gold), transparent); }
+tr.silver td { background: linear-gradient(90deg, var(--color-silver), transparent); }
+tr.bronze td { background: linear-gradient(90deg, var(--color-bronze), transparent); }
+
+/* Medal emojis */
+tr.gold td:first-child::before { content: "🥇 "; }
+tr.silver td:first-child::before { content: "🥈 "; }
+tr.bronze td:first-child::before { content: "🥉 "; }
+
+
+/* =============================================================================
+   6. FORM
+   ============================================================================= */
+
+#record-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.form-group label {
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+select, input {
+  padding: var(--spacing-sm);
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--border-radius);
+  background: var(--color-input-bg);
+  color: var(--color-input-text);
+  font-size: var(--font-size-base);
+}
+
+select:focus, input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+/* Time input (minutes : seconds) */
+.time-inputs {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.time-inputs input {
+  width: var(--time-input-width);
+  text-align: center;
+}
+
+.time-inputs span {
+  font-size: 1.5rem;
+  font-weight: bold;
+}
+
+/* Submit button */
+button {
+  border-radius: var(--border-radius);
+  border: 1px solid transparent;
+  padding: var(--spacing-sm) var(--spacing-lg);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  font-family: inherit;
+  background-color: var(--color-primary);
+  color: white;
+  cursor: pointer;
+  transition: background-color 0.25s;
+}
+
+button:hover {
+  background-color: var(--color-primary-hover);
+}
+
+button:focus,
+button:focus-visible {
+  outline: 4px auto -webkit-focus-ring-color;
+}
+
+
+/* =============================================================================
+   7. MESSAGES (success/error feedback)
+   ============================================================================= */
+
+#message {
+  text-align: center;
+  padding: var(--spacing-sm);
+  border-radius: var(--border-radius);
+  margin-top: var(--spacing-md);
+  min-height: 2.5rem;
+}
+
+#message.success {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+#message.error {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+}
+
+
+/* =============================================================================
+   8. LIGHT MODE
+   Overrides for when user prefers light color scheme
+   ============================================================================= */
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --color-background: #ffffff;
+    --color-text: #213547;
+    --color-text-muted: #666;
+    --color-card: #f5f5f5;
+    --color-border: #ddd;
+    --color-border-light: #ddd;
+    --color-input-bg: white;
+    --color-input-border: #ccc;
+    --color-input-text: #213547;
+  }
+}
