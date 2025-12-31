@@ -28,8 +28,20 @@ app.use((req, res, next) => {
   next();
 });
 
-// Also mount plank routes at /plank for dev access
+// Mount plank routes at /plank
 app.use("/plank", plankRouter);
+
+// Serve plank app at /plank
+if (isProduction) {
+  app.use("/plank/assets", express.static(join(__dirname, "plank-client", "assets")));
+}
+app.get("/plank", (_req, res) => {
+  if (isProduction) {
+    res.sendFile(join(__dirname, "plank-client", "plank.html"));
+  } else {
+    res.redirect("http://localhost:5556/plank.html");
+  }
+});
 
 // Public auth routes
 app.post("/api/login", (req, res) => {
