@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getUsers, addUser, recordTime, getLeaderboard, getHistory } from "./db.js";
+import { getUsers, addUser, recordTime, getLeaderboard, getHistory, updateUserName, deleteUser } from "./db.js";
 
 export const plankRouter = Router();
 
@@ -49,4 +49,29 @@ plankRouter.get("/api/leaderboard", (_req, res) => {
 plankRouter.get("/api/history", (_req, res) => {
   const history = getHistory();
   res.json(history);
+});
+
+// Update user name
+plankRouter.put("/api/users/:id", (req, res) => {
+  const userId = parseInt(req.params.id);
+  const { name } = req.body;
+
+  if (!name || !name.trim()) {
+    res.status(400).json({ error: "Name is required" });
+    return;
+  }
+
+  try {
+    updateUserName(userId, name);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(400).json({ error: "Failed to update name" });
+  }
+});
+
+// Delete user and their times
+plankRouter.delete("/api/users/:id", (req, res) => {
+  const userId = parseInt(req.params.id);
+  deleteUser(userId);
+  res.json({ success: true });
 });
