@@ -6,10 +6,7 @@ export default defineConfig({
   server: {
     port: 5556,
     proxy: {
-      "/api": {
-        target: "http://localhost:3456",
-        rewrite: (path) => `/plank${path}`,
-      },
+      "/plank/api": "http://localhost:3456",
     },
     open: "/plank.html",
   },

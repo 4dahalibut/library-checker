@@ -1,6 +1,6 @@
 import './style.css';
 
-const API_URL = '/api';
+const API_URL = '/plank/api';
 
 interface User {
   id: number;
