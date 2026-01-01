@@ -71,7 +71,7 @@ export function recordTime(userId: number, seconds: number) {
 
 export function getLeaderboard() {
   return plankDb.prepare(`
-    SELECT u.name, u.avatar, MAX(t.seconds) as best_time
+    SELECT u.id, u.name, u.avatar, MAX(t.seconds) as best_time
     FROM users u
     LEFT JOIN times t ON u.id = t.user_id
     GROUP BY u.id

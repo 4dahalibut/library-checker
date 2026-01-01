@@ -9,6 +9,7 @@ interface User {
 }
 
 interface LeaderboardEntry {
+  id: number;
   name: string;
   avatar: string | null;
   best_time: number | null;
@@ -24,6 +25,8 @@ interface HistoryEntry {
 
 let capturedAvatar: string | null = null;
 let cameraStream: MediaStream | null = null;
+let modalStream: MediaStream | null = null;
+let editingUserId: number | null = null;
 
 function formatTime(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60);
@@ -40,11 +43,12 @@ function getInitials(name: string): string {
   return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 }
 
-function renderAvatar(name: string, avatar: string | null, size: number = 32): string {
+function renderAvatar(name: string, avatar: string | null, size: number = 32, userId?: number): string {
+  const clickable = userId ? `avatar-clickable" data-user-id="${userId}` : '';
   if (avatar) {
-    return `<img src="${avatar}" class="avatar" style="width:${size}px;height:${size}px;" alt="${name}" />`;
+    return `<img src="${avatar}" class="avatar ${clickable}" style="width:${size}px;height:${size}px;" alt="${name}" />`;
   }
-  return `<div class="avatar avatar-initials" style="width:${size}px;height:${size}px;font-size:${size/2.5}px;">${getInitials(name)}</div>`;
+  return `<div class="avatar avatar-initials ${clickable}" style="width:${size}px;height:${size}px;font-size:${size/2.5}px;">${getInitials(name)}</div>`;
 }
 
 async function startCamera(): Promise<void> {
@@ -174,7 +178,7 @@ async function loadLeaderboard(): Promise<void> {
         .map((entry, i) => `
           <tr class="${i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : ''}">
             <td>${i + 1}</td>
-            <td class="name-cell">${renderAvatar(entry.name, entry.avatar)} ${entry.name}</td>
+            <td class="name-cell">${renderAvatar(entry.name, entry.avatar, 32, entry.id)} ${entry.name}</td>
             <td>${formatTime(entry.best_time!)}</td>
           </tr>
         `).join('')}
@@ -306,6 +310,125 @@ async function handleSubmit(e: Event): Promise<void> {
   }
 }
 
+// Modal functions
+async function openAvatarModal(userId: number): Promise<void> {
+  editingUserId = userId;
+  const modal = document.getElementById('avatar-modal')!;
+  const video = document.getElementById('modal-camera') as HTMLVideoElement;
+  const preview = document.getElementById('modal-preview') as HTMLImageElement;
+  const captureBtn = document.getElementById('modal-capture') as HTMLButtonElement;
+  const retakeBtn = document.getElementById('modal-retake') as HTMLButtonElement;
+  const saveBtn = document.getElementById('modal-save') as HTMLButtonElement;
+
+  // Reset state
+  video.style.display = 'block';
+  preview.style.display = 'none';
+  captureBtn.style.display = 'inline-block';
+  retakeBtn.style.display = 'none';
+  saveBtn.style.display = 'none';
+  capturedAvatar = null;
+
+  modal.style.display = 'flex';
+
+  try {
+    modalStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: 256, height: 256 }
+    });
+    video.srcObject = modalStream;
+  } catch (err) {
+    console.error('Camera error:', err);
+  }
+}
+
+function closeAvatarModal(): void {
+  const modal = document.getElementById('avatar-modal')!;
+  modal.style.display = 'none';
+  if (modalStream) {
+    modalStream.getTracks().forEach(track => track.stop());
+    modalStream = null;
+  }
+  editingUserId = null;
+  capturedAvatar = null;
+}
+
+function modalCapturePhoto(): void {
+  const video = document.getElementById('modal-camera') as HTMLVideoElement;
+  const canvas = document.getElementById('modal-canvas') as HTMLCanvasElement;
+  const preview = document.getElementById('modal-preview') as HTMLImageElement;
+  const captureBtn = document.getElementById('modal-capture') as HTMLButtonElement;
+  const retakeBtn = document.getElementById('modal-retake') as HTMLButtonElement;
+  const saveBtn = document.getElementById('modal-save') as HTMLButtonElement;
+
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d')!;
+
+  const size = Math.min(video.videoWidth, video.videoHeight);
+  const x = (video.videoWidth - size) / 2;
+  const y = (video.videoHeight - size) / 2;
+  ctx.drawImage(video, x, y, size, size, 0, 0, 128, 128);
+
+  capturedAvatar = canvas.toDataURL('image/jpeg', 0.7);
+  preview.src = capturedAvatar;
+
+  video.style.display = 'none';
+  preview.style.display = 'block';
+  captureBtn.style.display = 'none';
+  retakeBtn.style.display = 'inline-block';
+  saveBtn.style.display = 'inline-block';
+
+  if (modalStream) {
+    modalStream.getTracks().forEach(track => track.stop());
+    modalStream = null;
+  }
+}
+
+async function modalRetakePhoto(): Promise<void> {
+  const video = document.getElementById('modal-camera') as HTMLVideoElement;
+  const preview = document.getElementById('modal-preview') as HTMLImageElement;
+  const captureBtn = document.getElementById('modal-capture') as HTMLButtonElement;
+  const retakeBtn = document.getElementById('modal-retake') as HTMLButtonElement;
+  const saveBtn = document.getElementById('modal-save') as HTMLButtonElement;
+
+  capturedAvatar = null;
+  video.style.display = 'block';
+  preview.style.display = 'none';
+  captureBtn.style.display = 'inline-block';
+  retakeBtn.style.display = 'none';
+  saveBtn.style.display = 'none';
+
+  try {
+    modalStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: 256, height: 256 }
+    });
+    video.srcObject = modalStream;
+  } catch (err) {
+    console.error('Camera error:', err);
+  }
+}
+
+async function saveAvatar(): Promise<void> {
+  if (!editingUserId || !capturedAvatar) return;
+
+  try {
+    const response = await fetch(`${API_URL}/users/${editingUserId}/avatar`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ avatar: capturedAvatar }),
+    });
+
+    if (response.ok) {
+      showMessage('Photo updated!');
+      closeAvatarModal();
+      await Promise.all([loadLeaderboard(), loadHistory()]);
+    } else {
+      showMessage('Failed to update photo', true);
+    }
+  } catch (err) {
+    showMessage('Failed to connect to server', true);
+  }
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
   loadUsers();
@@ -315,4 +438,19 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('record-form')!.addEventListener('submit', handleSubmit);
   document.getElementById('capture-btn')!.addEventListener('click', capturePhoto);
   document.getElementById('retake-btn')!.addEventListener('click', retakePhoto);
+
+  // Modal event listeners
+  document.getElementById('modal-capture')!.addEventListener('click', modalCapturePhoto);
+  document.getElementById('modal-retake')!.addEventListener('click', modalRetakePhoto);
+  document.getElementById('modal-save')!.addEventListener('click', saveAvatar);
+  document.getElementById('modal-cancel')!.addEventListener('click', closeAvatarModal);
+
+  // Click on avatar to edit
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    if (target.classList.contains('avatar-clickable')) {
+      const userId = parseInt(target.dataset.userId || '0');
+      if (userId) openAvatarModal(userId);
+    }
+  });
 });
