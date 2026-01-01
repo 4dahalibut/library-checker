@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getUsers, addUser, recordTime, getLeaderboard, getHistory, updateUserName, updateUserAvatar, deleteUser } from "./db.js";
+import { getUsers, addUser, recordTime, getLeaderboard, getHistory, updateUserName, updateUserAvatar, deleteUser, deleteTime } from "./db.js";
 
 export const plankRouter = Router();
 
@@ -82,5 +82,12 @@ plankRouter.put("/api/users/:id/avatar", (req, res) => {
 plankRouter.delete("/api/users/:id", (req, res) => {
   const userId = parseInt(req.params.id);
   deleteUser(userId);
+  res.json({ success: true });
+});
+
+// Delete a single time entry
+plankRouter.delete("/api/times/:id", (req, res) => {
+  const timeId = parseInt(req.params.id);
+  deleteTime(timeId);
   res.json({ success: true });
 });

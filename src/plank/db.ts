@@ -100,3 +100,7 @@ export function deleteUser(userId: number) {
   plankDb.prepare("DELETE FROM times WHERE user_id = ?").run(userId);
   plankDb.prepare("DELETE FROM users WHERE id = ?").run(userId);
 }
+
+export function deleteTime(timeId: number) {
+  plankDb.prepare("DELETE FROM times WHERE id = ?").run(timeId);
+}
