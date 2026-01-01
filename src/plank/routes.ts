@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getUsers, addUser, recordTime, getLeaderboard, getHistory, updateUserName, deleteUser } from "./db.js";
+import { getUsers, addUser, recordTime, getLeaderboard, getHistory, updateUserName, updateUserAvatar, deleteUser } from "./db.js";
 
 export const plankRouter = Router();
 
@@ -67,6 +67,15 @@ plankRouter.put("/api/users/:id", (req, res) => {
   } catch (err) {
     res.status(400).json({ error: "Failed to update name" });
   }
+});
+
+// Update user avatar
+plankRouter.put("/api/users/:id/avatar", (req, res) => {
+  const userId = parseInt(req.params.id);
+  const { avatar } = req.body;
+
+  updateUserAvatar(userId, avatar || null);
+  res.json({ success: true });
 });
 
 // Delete user and their times

@@ -92,6 +92,10 @@ export function updateUserName(userId: number, name: string) {
   plankDb.prepare("UPDATE users SET name = ? WHERE id = ?").run(name.trim(), userId);
 }
 
+export function updateUserAvatar(userId: number, avatar: string | null) {
+  plankDb.prepare("UPDATE users SET avatar = ? WHERE id = ?").run(avatar, userId);
+}
+
 export function deleteUser(userId: number) {
   plankDb.prepare("DELETE FROM times WHERE user_id = ?").run(userId);
   plankDb.prepare("DELETE FROM users WHERE id = ?").run(userId);
