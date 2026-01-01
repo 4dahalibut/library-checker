@@ -11,7 +11,7 @@ plankRouter.get("/api/users", (_req, res) => {
 
 // Add new user
 plankRouter.post("/api/users", (req, res) => {
-  const { name } = req.body;
+  const { name, avatar } = req.body;
 
   if (!name || !name.trim()) {
     res.status(400).json({ error: "Name is required" });
@@ -19,7 +19,7 @@ plankRouter.post("/api/users", (req, res) => {
   }
 
   try {
-    const user = addUser(name);
+    const user = addUser(name, avatar);
     res.json(user);
   } catch (err) {
     res.status(400).json({ error: "Name already exists" });

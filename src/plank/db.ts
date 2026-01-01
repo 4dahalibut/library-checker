@@ -7,7 +7,8 @@ export const plankDb = new Database(dbPath);
 plankDb.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE
+    name TEXT NOT NULL UNIQUE,
+    avatar TEXT
   );
 
   CREATE TABLE IF NOT EXISTS times (
@@ -18,6 +19,13 @@ plankDb.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id)
   );
 `);
+
+// Add avatar column if it doesn't exist (migration for existing db)
+try {
+  plankDb.exec(`ALTER TABLE users ADD COLUMN avatar TEXT`);
+} catch (e) {
+  // Column already exists
+}
 
 // Seed initial users if they don't exist
 const seedUsers = ["Josh Z", "Rachel", "Stu", "Manny"];
@@ -48,12 +56,12 @@ if (timeCount.count === 0) {
 }
 
 export function getUsers() {
-  return plankDb.prepare("SELECT id, name FROM users ORDER BY name").all();
+  return plankDb.prepare("SELECT id, name, avatar FROM users ORDER BY name").all();
 }
 
-export function addUser(name: string) {
-  const result = plankDb.prepare("INSERT INTO users (name) VALUES (?)").run(name.trim());
-  return { id: result.lastInsertRowid, name: name.trim() };
+export function addUser(name: string, avatar?: string) {
+  const result = plankDb.prepare("INSERT INTO users (name, avatar) VALUES (?, ?)").run(name.trim(), avatar || null);
+  return { id: result.lastInsertRowid, name: name.trim(), avatar: avatar || null };
 }
 
 export function recordTime(userId: number, seconds: number) {
@@ -63,7 +71,7 @@ export function recordTime(userId: number, seconds: number) {
 
 export function getLeaderboard() {
   return plankDb.prepare(`
-    SELECT u.name, MAX(t.seconds) as best_time
+    SELECT u.name, u.avatar, MAX(t.seconds) as best_time
     FROM users u
     LEFT JOIN times t ON u.id = t.user_id
     GROUP BY u.id
@@ -73,7 +81,7 @@ export function getLeaderboard() {
 
 export function getHistory() {
   return plankDb.prepare(`
-    SELECT t.id, u.name, t.seconds, t.recorded_at
+    SELECT t.id, u.name, u.avatar, t.seconds, t.recorded_at
     FROM times t
     JOIN users u ON t.user_id = u.id
     ORDER BY t.recorded_at DESC

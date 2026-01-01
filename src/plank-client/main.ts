@@ -5,19 +5,25 @@ const API_URL = '/plank/api';
 interface User {
   id: number;
   name: string;
+  avatar: string | null;
 }
 
 interface LeaderboardEntry {
   name: string;
+  avatar: string | null;
   best_time: number | null;
 }
 
 interface HistoryEntry {
   id: number;
   name: string;
+  avatar: string | null;
   seconds: number;
   recorded_at: string;
 }
+
+let capturedAvatar: string | null = null;
+let cameraStream: MediaStream | null = null;
 
 function formatTime(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60);
@@ -30,9 +36,83 @@ function formatDate(dateStr: string): string {
   return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+function getInitials(name: string): string {
+  return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+}
+
+function renderAvatar(name: string, avatar: string | null, size: number = 32): string {
+  if (avatar) {
+    return `<img src="${avatar}" class="avatar" style="width:${size}px;height:${size}px;" alt="${name}" />`;
+  }
+  return `<div class="avatar avatar-initials" style="width:${size}px;height:${size}px;font-size:${size/2.5}px;">${getInitials(name)}</div>`;
+}
+
+async function startCamera(): Promise<void> {
+  const video = document.getElementById('camera-preview') as HTMLVideoElement;
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: 256, height: 256 }
+    });
+    video.srcObject = cameraStream;
+  } catch (err) {
+    console.error('Camera error:', err);
+  }
+}
+
+function stopCamera(): void {
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(track => track.stop());
+    cameraStream = null;
+  }
+}
+
+function capturePhoto(): void {
+  const video = document.getElementById('camera-preview') as HTMLVideoElement;
+  const canvas = document.getElementById('camera-canvas') as HTMLCanvasElement;
+  const preview = document.getElementById('avatar-preview') as HTMLImageElement;
+  const captureBtn = document.getElementById('capture-btn') as HTMLButtonElement;
+  const retakeBtn = document.getElementById('retake-btn') as HTMLButtonElement;
+
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d')!;
+
+  // Draw cropped square from center of video
+  const size = Math.min(video.videoWidth, video.videoHeight);
+  const x = (video.videoWidth - size) / 2;
+  const y = (video.videoHeight - size) / 2;
+  ctx.drawImage(video, x, y, size, size, 0, 0, 128, 128);
+
+  capturedAvatar = canvas.toDataURL('image/jpeg', 0.7);
+  preview.src = capturedAvatar;
+
+  video.style.display = 'none';
+  preview.style.display = 'block';
+  captureBtn.style.display = 'none';
+  retakeBtn.style.display = 'inline-block';
+
+  stopCamera();
+}
+
+function retakePhoto(): void {
+  const video = document.getElementById('camera-preview') as HTMLVideoElement;
+  const preview = document.getElementById('avatar-preview') as HTMLImageElement;
+  const captureBtn = document.getElementById('capture-btn') as HTMLButtonElement;
+  const retakeBtn = document.getElementById('retake-btn') as HTMLButtonElement;
+
+  capturedAvatar = null;
+  video.style.display = 'block';
+  preview.style.display = 'none';
+  captureBtn.style.display = 'inline-block';
+  retakeBtn.style.display = 'none';
+
+  startCamera();
+}
+
 async function loadUsers(): Promise<void> {
   const select = document.getElementById('user-select') as HTMLSelectElement;
   const newNameInput = document.getElementById('new-name-input') as HTMLInputElement;
+  const cameraContainer = document.getElementById('camera-container') as HTMLDivElement;
   const users: User[] = await fetch(`${API_URL}/users`).then(r => r.json());
 
   // Clear existing options except the first one
@@ -52,17 +132,22 @@ async function loadUsers(): Promise<void> {
   select.appendChild(newOption);
 
   // Toggle input visibility
-  select.addEventListener('change', () => {
+  select.onchange = async () => {
     if (select.value === 'new') {
       newNameInput.style.display = 'block';
       newNameInput.required = true;
+      cameraContainer.style.display = 'block';
       select.required = false;
+      await startCamera();
     } else {
       newNameInput.style.display = 'none';
       newNameInput.required = false;
+      cameraContainer.style.display = 'none';
       select.required = true;
+      stopCamera();
+      capturedAvatar = null;
     }
-  });
+  };
 }
 
 async function loadLeaderboard(): Promise<void> {
@@ -89,7 +174,7 @@ async function loadLeaderboard(): Promise<void> {
         .map((entry, i) => `
           <tr class="${i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : ''}">
             <td>${i + 1}</td>
-            <td>${entry.name}</td>
+            <td class="name-cell">${renderAvatar(entry.name, entry.avatar)} ${entry.name}</td>
             <td>${formatTime(entry.best_time!)}</td>
           </tr>
         `).join('')}
@@ -120,7 +205,7 @@ async function loadHistory(): Promise<void> {
     <tbody>
       ${entries.map(entry => `
         <tr>
-          <td>${entry.name}</td>
+          <td class="name-cell">${renderAvatar(entry.name, entry.avatar, 24)} ${entry.name}</td>
           <td>${formatTime(entry.seconds)}</td>
           <td>${formatDate(entry.recorded_at)}</td>
         </tr>
@@ -146,6 +231,7 @@ async function handleSubmit(e: Event): Promise<void> {
 
   const userSelect = document.getElementById('user-select') as HTMLSelectElement;
   const newNameInput = document.getElementById('new-name-input') as HTMLInputElement;
+  const cameraContainer = document.getElementById('camera-container') as HTMLDivElement;
   const minutesInput = document.getElementById('minutes-input') as HTMLInputElement;
   const secondsInput = document.getElementById('seconds-input') as HTMLInputElement;
 
@@ -163,7 +249,7 @@ async function handleSubmit(e: Event): Promise<void> {
       const response = await fetch(`${API_URL}/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, avatar: capturedAvatar }),
       });
 
       if (!response.ok) {
@@ -207,9 +293,12 @@ async function handleSubmit(e: Event): Promise<void> {
     showMessage(`Recorded ${formatTime(totalSeconds)}!`);
     newNameInput.value = '';
     newNameInput.style.display = 'none';
+    cameraContainer.style.display = 'none';
     userSelect.value = '';
     minutesInput.value = '';
     secondsInput.value = '';
+    capturedAvatar = null;
+    stopCamera();
 
     await Promise.all([loadUsers(), loadLeaderboard(), loadHistory()]);
   } catch (err) {
@@ -224,4 +313,6 @@ document.addEventListener('DOMContentLoaded', () => {
   loadHistory();
 
   document.getElementById('record-form')!.addEventListener('submit', handleSubmit);
+  document.getElementById('capture-btn')!.addEventListener('click', capturePhoto);
+  document.getElementById('retake-btn')!.addEventListener('click', retakePhoto);
 });

@@ -24,6 +24,15 @@
               <option value="">Select your name...</option>
             </select>
             <input type="text" id="new-name-input" placeholder="Enter your name" style="display: none;" />
+            <div id="camera-container" style="display: none;">
+              <video id="camera-preview" autoplay playsinline></video>
+              <canvas id="camera-canvas" style="display: none;"></canvas>
+              <img id="avatar-preview" style="display: none;" />
+              <div class="camera-buttons">
+                <button type="button" id="capture-btn">Take Photo</button>
+                <button type="button" id="retake-btn" style="display: none;">Retake</button>
+              </div>
+            </div>
           </div>
           <div class="form-group">
             <label for="time-input">Plank Time</label>

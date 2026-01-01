@@ -311,7 +311,61 @@ button:focus-visible {
 
 
 /* =============================================================================
-   9. MOBILE STYLES
+   9. AVATARS
+   ============================================================================= */
+
+.avatar {
+  border-radius: 50%;
+  object-fit: cover;
+  vertical-align: middle;
+  margin-right: var(--spacing-xs);
+}
+
+.avatar-initials {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary);
+  color: white;
+  font-weight: 600;
+}
+
+.name-cell {
+  display: flex;
+  align-items: center;
+}
+
+/* =============================================================================
+   10. CAMERA
+   ============================================================================= */
+
+#camera-container {
+  margin-top: var(--spacing-md);
+  text-align: center;
+}
+
+#camera-preview, #avatar-preview {
+  width: 128px;
+  height: 128px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--color-input-bg);
+  margin-bottom: var(--spacing-sm);
+}
+
+.camera-buttons {
+  display: flex;
+  gap: var(--spacing-sm);
+  justify-content: center;
+}
+
+.camera-buttons button {
+  padding: var(--spacing-xs) var(--spacing-md);
+  font-size: var(--font-size-small);
+}
+
+/* =============================================================================
+   11. MOBILE STYLES
    ============================================================================= */
 
 @media (max-width: 480px) {
