@@ -27,6 +27,7 @@ let capturedAvatar: string | null = null;
 let cameraStream: MediaStream | null = null;
 let modalStream: MediaStream | null = null;
 let editingUserId: number | null = null;
+let facingMode: 'user' | 'environment' = 'user';
 
 function formatTime(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60);
@@ -54,13 +55,21 @@ function renderAvatar(name: string, avatar: string | null, size: number = 32, us
 async function startCamera(): Promise<void> {
   const video = document.getElementById('camera-preview') as HTMLVideoElement;
   try {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+    }
     cameraStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user', width: 256, height: 256 }
+      video: { facingMode, width: 256, height: 256 }
     });
     video.srcObject = cameraStream;
   } catch (err) {
     console.error('Camera error:', err);
   }
+}
+
+async function flipCamera(): Promise<void> {
+  facingMode = facingMode === 'user' ? 'environment' : 'user';
+  await startCamera();
 }
 
 function stopCamera(): void {
@@ -311,6 +320,26 @@ async function handleSubmit(e: Event): Promise<void> {
 }
 
 // Modal functions
+async function startModalCamera(): Promise<void> {
+  const video = document.getElementById('modal-camera') as HTMLVideoElement;
+  try {
+    if (modalStream) {
+      modalStream.getTracks().forEach(track => track.stop());
+    }
+    modalStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode, width: 256, height: 256 }
+    });
+    video.srcObject = modalStream;
+  } catch (err) {
+    console.error('Camera error:', err);
+  }
+}
+
+async function flipModalCamera(): Promise<void> {
+  facingMode = facingMode === 'user' ? 'environment' : 'user';
+  await startModalCamera();
+}
+
 async function openAvatarModal(userId: number): Promise<void> {
   editingUserId = userId;
   const modal = document.getElementById('avatar-modal')!;
@@ -319,6 +348,7 @@ async function openAvatarModal(userId: number): Promise<void> {
   const captureBtn = document.getElementById('modal-capture') as HTMLButtonElement;
   const retakeBtn = document.getElementById('modal-retake') as HTMLButtonElement;
   const saveBtn = document.getElementById('modal-save') as HTMLButtonElement;
+  const flipBtn = document.getElementById('modal-flip') as HTMLButtonElement;
 
   // Reset state
   video.style.display = 'block';
@@ -326,18 +356,11 @@ async function openAvatarModal(userId: number): Promise<void> {
   captureBtn.style.display = 'inline-block';
   retakeBtn.style.display = 'none';
   saveBtn.style.display = 'none';
+  flipBtn.style.display = 'inline-block';
   capturedAvatar = null;
 
   modal.style.display = 'flex';
-
-  try {
-    modalStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user', width: 256, height: 256 }
-    });
-    video.srcObject = modalStream;
-  } catch (err) {
-    console.error('Camera error:', err);
-  }
+  await startModalCamera();
 }
 
 function closeAvatarModal(): void {
@@ -358,6 +381,7 @@ function modalCapturePhoto(): void {
   const captureBtn = document.getElementById('modal-capture') as HTMLButtonElement;
   const retakeBtn = document.getElementById('modal-retake') as HTMLButtonElement;
   const saveBtn = document.getElementById('modal-save') as HTMLButtonElement;
+  const flipBtn = document.getElementById('modal-flip') as HTMLButtonElement;
 
   canvas.width = 128;
   canvas.height = 128;
@@ -374,6 +398,7 @@ function modalCapturePhoto(): void {
   video.style.display = 'none';
   preview.style.display = 'block';
   captureBtn.style.display = 'none';
+  flipBtn.style.display = 'none';
   retakeBtn.style.display = 'inline-block';
   saveBtn.style.display = 'inline-block';
 
@@ -389,22 +414,17 @@ async function modalRetakePhoto(): Promise<void> {
   const captureBtn = document.getElementById('modal-capture') as HTMLButtonElement;
   const retakeBtn = document.getElementById('modal-retake') as HTMLButtonElement;
   const saveBtn = document.getElementById('modal-save') as HTMLButtonElement;
+  const flipBtn = document.getElementById('modal-flip') as HTMLButtonElement;
 
   capturedAvatar = null;
   video.style.display = 'block';
   preview.style.display = 'none';
   captureBtn.style.display = 'inline-block';
+  flipBtn.style.display = 'inline-block';
   retakeBtn.style.display = 'none';
   saveBtn.style.display = 'none';
 
-  try {
-    modalStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user', width: 256, height: 256 }
-    });
-    video.srcObject = modalStream;
-  } catch (err) {
-    console.error('Camera error:', err);
-  }
+  await startModalCamera();
 }
 
 async function saveAvatar(): Promise<void> {
@@ -437,10 +457,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('record-form')!.addEventListener('submit', handleSubmit);
   document.getElementById('capture-btn')!.addEventListener('click', capturePhoto);
+  document.getElementById('flip-btn')!.addEventListener('click', flipCamera);
   document.getElementById('retake-btn')!.addEventListener('click', retakePhoto);
 
   // Modal event listeners
   document.getElementById('modal-capture')!.addEventListener('click', modalCapturePhoto);
+  document.getElementById('modal-flip')!.addEventListener('click', flipModalCamera);
   document.getElementById('modal-retake')!.addEventListener('click', modalRetakePhoto);
   document.getElementById('modal-save')!.addEventListener('click', saveAvatar);
   document.getElementById('modal-cancel')!.addEventListener('click', closeAvatarModal);
