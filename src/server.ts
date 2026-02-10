@@ -33,7 +33,7 @@ app.use("/plank", plankRouter);
 
 // Serve plank app at /plank
 if (isProduction) {
-  app.use("/plank/assets", express.static(join(__dirname, "plank-client", "assets")));
+  app.use("/plank", express.static(join(__dirname, "plank-client"), { index: false }));
 }
 app.get("/plank", (_req, res) => {
   if (isProduction) {
