@@ -40,6 +40,9 @@ function checkAndMigrateOldSchema() {
   if (!colNames.has("publish_year")) addColIfMissing("books", "publish_year", "INTEGER");
   if (!colNames.has("notes")) addColIfMissing("books", "notes", "TEXT");
   try { db.exec(`ALTER TABLE finished_books ADD COLUMN vibe TEXT`); } catch { /* exists */ }
+  try { db.exec(`ALTER TABLE users ADD COLUMN library_barcode TEXT`); } catch { /* exists */ }
+  try { db.exec(`ALTER TABLE users ADD COLUMN library_pin TEXT`); } catch { /* exists */ }
+  try { db.exec(`ALTER TABLE users ADD COLUMN library_account_id TEXT`); } catch { /* exists */ }
 
   const tx = db.transaction(() => {
     // Create josh user with hashed password
@@ -133,6 +136,16 @@ function checkAndMigrateOldSchema() {
 }
 
 checkAndMigrateOldSchema();
+
+// Migrate library credentials for josh from env vars
+try { db.exec(`ALTER TABLE users ADD COLUMN library_barcode TEXT`); } catch { /* exists */ }
+try { db.exec(`ALTER TABLE users ADD COLUMN library_pin TEXT`); } catch { /* exists */ }
+try { db.exec(`ALTER TABLE users ADD COLUMN library_account_id TEXT`); } catch { /* exists */ }
+
+if (process.env.LIBRARY_BARCODE && process.env.LIBRARY_PIN && process.env.LIBRARY_ACCOUNT_ID) {
+  db.prepare(`UPDATE users SET library_barcode = ?, library_pin = ?, library_account_id = ? WHERE username = 'josh' AND library_barcode IS NULL`)
+    .run(process.env.LIBRARY_BARCODE, process.env.LIBRARY_PIN, process.env.LIBRARY_ACCOUNT_ID);
+}
 
 // Create tables for fresh installs (no-op if they exist from migration)
 db.exec(`
@@ -244,24 +257,27 @@ export interface User {
   username: string;
   passwordHash: string;
   createdAt: string;
+  libraryBarcode: string | null;
+  libraryPin: string | null;
+  libraryAccountId: string | null;
 }
 
 // --- User management ---
 
 export function getUserByUsername(username: string): User | null {
-  const row = db.prepare(`SELECT id, username, password_hash as passwordHash, created_at as createdAt FROM users WHERE username = ?`).get(username) as User | undefined;
+  const row = db.prepare(`SELECT id, username, password_hash as passwordHash, created_at as createdAt, library_barcode as libraryBarcode, library_pin as libraryPin, library_account_id as libraryAccountId FROM users WHERE username = ?`).get(username) as User | undefined;
   return row || null;
 }
 
 export function getUserById(id: number): User | null {
-  const row = db.prepare(`SELECT id, username, password_hash as passwordHash, created_at as createdAt FROM users WHERE id = ?`).get(id) as User | undefined;
+  const row = db.prepare(`SELECT id, username, password_hash as passwordHash, created_at as createdAt, library_barcode as libraryBarcode, library_pin as libraryPin, library_account_id as libraryAccountId FROM users WHERE id = ?`).get(id) as User | undefined;
   return row || null;
 }
 
-export function createUser(username: string, passwordHash: string): User {
+export function createUser(username: string, passwordHash: string, libraryBarcode: string | null = null, libraryPin: string | null = null, libraryAccountId: string | null = null): User {
   const createdAt = new Date().toISOString();
-  const result = db.prepare(`INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)`).run(username, passwordHash, createdAt);
-  return { id: result.lastInsertRowid as number, username, passwordHash, createdAt };
+  const result = db.prepare(`INSERT INTO users (username, password_hash, created_at, library_barcode, library_pin, library_account_id) VALUES (?, ?, ?, ?, ?, ?)`).run(username, passwordHash, createdAt, libraryBarcode, libraryPin, libraryAccountId);
+  return { id: result.lastInsertRowid as number, username, passwordHash, createdAt, libraryBarcode, libraryPin, libraryAccountId };
 }
 
 // --- Book queries (user-scoped) ---

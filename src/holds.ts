@@ -3,9 +3,12 @@ config();
 
 const BASE_URL = "https://acl.bibliocommons.com";
 const GATEWAY_URL = "https://gateway.bibliocommons.com/v2/libraries/acl";
-const BARCODE = process.env.LIBRARY_BARCODE!;
-const PIN = process.env.LIBRARY_PIN!;
-const ACCOUNT_ID = process.env.LIBRARY_ACCOUNT_ID!;
+
+export interface LibraryCredentials {
+  barcode: string;
+  pin: string;
+  accountId: string;
+}
 
 export interface Hold {
   title: string;
@@ -20,13 +23,6 @@ export interface Hold {
   totalHolds?: number;
   dueDate?: string;
   pickupBy?: string;
-}
-
-interface SessionInfo {
-  cookies: string;
-  accessToken: string;
-  sessionId: string;
-  accountId: string;
 }
 
 async function getLoginPage(): Promise<{ token: string; cookies: string }> {
@@ -51,12 +47,12 @@ interface LoginResult {
   sessionId: string;
 }
 
-async function login(token: string, cookies: string): Promise<LoginResult> {
+async function login(token: string, cookies: string, barcode: string, pin: string): Promise<LoginResult> {
   const body = new URLSearchParams({
     utf8: "✓",
     authenticity_token: token,
-    name: BARCODE,
-    user_pin: PIN,
+    name: barcode,
+    user_pin: pin,
   });
 
   const response = await fetch(`${BASE_URL}/user/login?destination=%2Fv2%2Fholds`, {
@@ -99,6 +95,31 @@ async function fetchHoldsPage(cookies: string): Promise<string> {
   });
 
   return response.text();
+}
+
+export async function discoverAccountId(barcode: string, pin: string): Promise<string | null> {
+  try {
+    const { token, cookies } = await getLoginPage();
+    const session = await login(token, cookies, barcode, pin);
+    const html = await fetchHoldsPage(session.cookies);
+
+    // If we got redirected back to login, credentials are invalid
+    if (html.includes('id="user_pin"') || html.includes('Sign In')) {
+      return null;
+    }
+
+    const jsonMatch = html.match(/<script[^>]*type="application\/json"[^>]*data-iso-key="_0"[^>]*>([\s\S]*?)<\/script>/);
+    if (!jsonMatch) return null;
+
+    const data = JSON.parse(jsonMatch[1]);
+    const accounts = data?.entities?.accounts;
+    if (!accounts) return null;
+
+    const accountId = Object.keys(accounts)[0];
+    return accountId || null;
+  } catch {
+    return null;
+  }
 }
 
 interface HoldsPageData {
@@ -245,33 +266,33 @@ async function parseHolds(html: string): Promise<Hold[]> {
   return holds;
 }
 
-// Cache session for 30 minutes
-let cachedSession: LoginResult | null = null;
-let sessionExpiry = 0;
+// Cache sessions per user for 30 minutes
+const sessionCache = new Map<string, { session: LoginResult; expiry: number }>();
 
-async function getSession(forceRefresh = false): Promise<LoginResult> {
-  if (!forceRefresh && cachedSession && Date.now() < sessionExpiry) {
-    return cachedSession;
+async function getSession(creds: LibraryCredentials, forceRefresh = false): Promise<LoginResult> {
+  const key = creds.barcode;
+  const cached = sessionCache.get(key);
+  if (!forceRefresh && cached && Date.now() < cached.expiry) {
+    return cached.session;
   }
   const { token, cookies } = await getLoginPage();
-  cachedSession = await login(token, cookies);
-  sessionExpiry = Date.now() + 30 * 60 * 1000; // 30 minutes
-  return cachedSession;
+  const session = await login(token, cookies, creds.barcode, creds.pin);
+  sessionCache.set(key, { session, expiry: Date.now() + 30 * 60 * 1000 });
+  return session;
 }
 
-function clearSession() {
-  cachedSession = null;
-  sessionExpiry = 0;
+function clearSession(creds: LibraryCredentials) {
+  sessionCache.delete(creds.barcode);
 }
 
-export async function getHolds(): Promise<Hold[]> {
-  const session = await getSession();
+export async function getHolds(creds: LibraryCredentials): Promise<Hold[]> {
+  const session = await getSession(creds);
   const html = await fetchHoldsPage(session.cookies);
 
   // If session expired, page will have login form - retry with fresh session
   if (html.includes('id="user_pin"') || html.includes('Sign In')) {
-    clearSession();
-    const freshSession = await getSession(true);
+    clearSession(creds);
+    const freshSession = await getSession(creds, true);
     const freshHtml = await fetchHoldsPage(freshSession.cookies);
     return parseHolds(freshHtml);
   }
@@ -279,7 +300,7 @@ export async function getHolds(): Promise<Hold[]> {
   return parseHolds(html);
 }
 
-async function doPlaceHold(bibId: string, branchId: string, session: LoginResult): Promise<Response> {
+async function doPlaceHold(bibId: string, branchId: string, accountId: string, session: LoginResult): Promise<Response> {
   return fetch(`${GATEWAY_URL}/holds?locale=en-US`, {
     method: "POST",
     headers: {
@@ -295,7 +316,7 @@ async function doPlaceHold(bibId: string, branchId: string, session: LoginResult
     body: JSON.stringify({
       metadataId: bibId,
       materialType: "PHYSICAL",
-      accountId: parseInt(ACCOUNT_ID),
+      accountId: parseInt(accountId),
       enableSingleClickHolds: false,
       materialParams: {
         branchId,
@@ -306,19 +327,15 @@ async function doPlaceHold(bibId: string, branchId: string, session: LoginResult
   });
 }
 
-export async function placeHold(bibId: string, branchId = "YQ"): Promise<{ success: boolean; message: string }> {
-  if (!BARCODE || !PIN || !ACCOUNT_ID) {
-    return { success: false, message: "Library credentials not configured" };
-  }
-
-  let session = await getSession();
-  let response = await doPlaceHold(bibId, branchId, session);
+export async function placeHold(bibId: string, creds: LibraryCredentials, branchId = "YQ"): Promise<{ success: boolean; message: string }> {
+  let session = await getSession(creds);
+  let response = await doPlaceHold(bibId, branchId, creds.accountId, session);
 
   // Retry with fresh session on auth error
   if (response.status === 401 || response.status === 403) {
-    clearSession();
-    session = await getSession(true);
-    response = await doPlaceHold(bibId, branchId, session);
+    clearSession(creds);
+    session = await getSession(creds, true);
+    response = await doPlaceHold(bibId, branchId, creds.accountId, session);
   }
 
   const data = await response.json();
@@ -332,7 +349,7 @@ export async function placeHold(bibId: string, branchId = "YQ"): Promise<{ succe
   }
 }
 
-async function doCancelHold(holdId: string, metadataId: string, session: LoginResult): Promise<Response> {
+async function doCancelHold(holdId: string, metadataId: string, accountId: string, session: LoginResult): Promise<Response> {
   return fetch(`${GATEWAY_URL}/holds?locale=en-US`, {
     method: "DELETE",
     headers: {
@@ -346,22 +363,22 @@ async function doCancelHold(holdId: string, metadataId: string, session: LoginRe
       "x-session-id": session.sessionId,
     },
     body: JSON.stringify({
-      accountId: parseInt(ACCOUNT_ID),
+      accountId: parseInt(accountId),
       holdIds: [holdId],
       metadataIds: [metadataId],
     }),
   });
 }
 
-export async function cancelHold(holdId: string, metadataId: string): Promise<{ success: boolean; message: string }> {
-  let session = await getSession();
-  let response = await doCancelHold(holdId, metadataId, session);
+export async function cancelHold(holdId: string, metadataId: string, creds: LibraryCredentials): Promise<{ success: boolean; message: string }> {
+  let session = await getSession(creds);
+  let response = await doCancelHold(holdId, metadataId, creds.accountId, session);
 
   // Retry with fresh session on auth error
   if (response.status === 401 || response.status === 403) {
-    clearSession();
-    session = await getSession(true);
-    response = await doCancelHold(holdId, metadataId, session);
+    clearSession(creds);
+    session = await getSession(creds, true);
+    response = await doCancelHold(holdId, metadataId, creds.accountId, session);
   }
 
   if (response.ok) {
@@ -376,8 +393,13 @@ export async function cancelHold(holdId: string, metadataId: string): Promise<{ 
 // CLI
 if (import.meta.url === `file://${process.argv[1]}`) {
   (async () => {
+    const creds: LibraryCredentials = {
+      barcode: process.env.LIBRARY_BARCODE!,
+      pin: process.env.LIBRARY_PIN!,
+      accountId: process.env.LIBRARY_ACCOUNT_ID!,
+    };
     console.log("Fetching holds...\n");
-    const holds = await getHolds();
+    const holds = await getHolds(creds);
 
     if (holds.length === 0) {
       console.log("No holds found.");

@@ -2,9 +2,9 @@ import express from "express";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import "dotenv/config";
-import { getAllBooks, getStats, getAllGenres, updateLibraryData, addBook, deleteBook, togglePin, updateNotes, updateNumRatings, getRecommendations, addRecommendation, deleteRecommendation, getFinishedBooks, addFinishedBook, updateFinishedBook, deleteFinishedBook, getUserByUsername, createUser, db } from "./db.js";
+import { getAllBooks, getStats, getAllGenres, updateLibraryData, addBook, deleteBook, togglePin, updateNotes, updateNumRatings, getRecommendations, addRecommendation, deleteRecommendation, getFinishedBooks, addFinishedBook, updateFinishedBook, deleteFinishedBook, getUserByUsername, getUserById, createUser, db } from "./db.js";
 import { searchLibrary, searchEditions, searchByISBN, searchByTitleAuthor } from "./library.js";
-import { getHolds, placeHold, cancelHold } from "./holds.js";
+import { getHolds, placeHold, cancelHold, discoverAccountId, type LibraryCredentials } from "./holds.js";
 import { fetchNumRatings } from "./goodreads.js";
 import { authMiddleware, hashPassword, verifyPassword, createSession, deleteSession, getSessionUser, parseCookies, getSessionCookie, getClearSessionCookie } from "./auth.js";
 import { plankRouter } from "./plank/routes.js";
@@ -52,10 +52,14 @@ function resolveUser(username: string): { userId: number; username: string } | n
 
 // --- Auth routes ---
 
-app.post("/api/register", (req, res) => {
-  const { username, password } = req.body;
+app.post("/api/register", async (req, res) => {
+  const { username, password, libraryBarcode, libraryPin } = req.body;
   if (!username || !password) {
     res.status(400).json({ error: "Username and password required" });
+    return;
+  }
+  if (!libraryBarcode || !libraryPin) {
+    res.status(400).json({ error: "Library card barcode and PIN required" });
     return;
   }
   if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
@@ -77,8 +81,14 @@ app.post("/api/register", (req, res) => {
     return;
   }
 
+  const accountId = await discoverAccountId(libraryBarcode, libraryPin);
+  if (!accountId) {
+    res.status(400).json({ error: "Invalid library credentials. Check your barcode and PIN." });
+    return;
+  }
+
   const passwordHash = hashPassword(password);
-  const user = createUser(username, passwordHash);
+  const user = createUser(username, passwordHash, libraryBarcode, libraryPin, accountId);
   const sessionId = createSession(user.id);
   res.setHeader("Set-Cookie", getSessionCookie(sessionId, isProduction));
   res.json({ success: true, username: user.username });
@@ -176,9 +186,15 @@ app.get("/api/books", authMiddleware, (req, res) => {
   res.json({ books, stats, genres });
 });
 
-app.get("/api/holds", async (_req, res) => {
+app.get("/api/holds", authMiddleware, async (req, res) => {
   try {
-    const holds = await getHolds();
+    const user = getUserById(req.user!.userId);
+    if (!user?.libraryBarcode || !user?.libraryPin || !user?.libraryAccountId) {
+      res.status(400).json({ error: "No library credentials configured" });
+      return;
+    }
+    const creds: LibraryCredentials = { barcode: user.libraryBarcode, pin: user.libraryPin, accountId: user.libraryAccountId };
+    const holds = await getHolds(creds);
     res.json({ holds });
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch holds" });
@@ -224,7 +240,13 @@ app.delete("/api/finished/:id", authMiddleware, (req, res) => {
 app.post("/api/hold/:bibId", authMiddleware, async (req, res) => {
   const { bibId } = req.params;
   try {
-    const result = await placeHold(bibId);
+    const user = getUserById(req.user!.userId);
+    if (!user?.libraryBarcode || !user?.libraryPin || !user?.libraryAccountId) {
+      res.status(400).json({ success: false, message: "No library credentials configured" });
+      return;
+    }
+    const creds: LibraryCredentials = { barcode: user.libraryBarcode, pin: user.libraryPin, accountId: user.libraryAccountId };
+    const result = await placeHold(bibId, creds);
     if (!result.success) {
       console.error("Hold failed:", result.message);
     }
@@ -255,7 +277,13 @@ app.delete("/api/hold/:holdId", authMiddleware, async (req, res) => {
   const { holdId } = req.params;
   const { metadataId } = req.body;
   try {
-    const result = await cancelHold(holdId, metadataId);
+    const user = getUserById(req.user!.userId);
+    if (!user?.libraryBarcode || !user?.libraryPin || !user?.libraryAccountId) {
+      res.status(400).json({ success: false, message: "No library credentials configured" });
+      return;
+    }
+    const creds: LibraryCredentials = { barcode: user.libraryBarcode, pin: user.libraryPin, accountId: user.libraryAccountId };
+    const result = await cancelHold(holdId, metadataId, creds);
     res.json(result);
   } catch (error) {
     console.error("Error cancelling hold:", error);

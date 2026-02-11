@@ -141,7 +141,9 @@ function renderLanding() {
     <form id="register-form" class="add-form">
       <input type="text" id="register-username" class="add-input" placeholder="Username" style="margin-bottom:5px;">
       <input type="password" id="register-password" class="add-input" placeholder="Password" style="margin-bottom:5px;">
-      <input type="submit" value="Register">
+      <input type="text" id="register-barcode" class="add-input" placeholder="Library card barcode" style="margin-bottom:5px;">
+      <input type="password" id="register-pin" class="add-input" placeholder="Library PIN" style="margin-bottom:5px;">
+      <input type="submit" id="register-submit" value="Register">
       <div id="register-error" style="color: red; font-size: 12px; margin-top: 5px;"></div>
     </form>
     </center>
@@ -174,22 +176,30 @@ function renderLanding() {
     e.preventDefault();
     const username = (document.getElementById("register-username") as HTMLInputElement).value;
     const password = (document.getElementById("register-password") as HTMLInputElement).value;
+    const libraryBarcode = (document.getElementById("register-barcode") as HTMLInputElement).value;
+    const libraryPin = (document.getElementById("register-pin") as HTMLInputElement).value;
     const errorEl = document.getElementById("register-error")!;
+    const submitBtn = document.getElementById("register-submit") as HTMLInputElement;
+
+    errorEl.textContent = "Verifying library credentials...";
+    submitBtn.disabled = true;
 
     try {
       const res = await fetch("/api/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, libraryBarcode, libraryPin }),
       });
       const data = await res.json();
       if (res.ok) {
         window.location.href = `/u/${data.username}`;
       } else {
         errorEl.textContent = data.error || "Registration failed";
+        submitBtn.disabled = false;
       }
     } catch {
       errorEl.textContent = "Registration failed";
+      submitBtn.disabled = false;
     }
   });
 }
