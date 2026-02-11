@@ -1,4 +1,4 @@
-import { getBooksNeedingGenres, updateGenres } from "./db.js";
+import { getAllBooksNeedingGenres, updateGenres } from "./db.js";
 
 const LIMIT = parseInt(process.argv[2] || "100", 10);
 const DELAY_MS = 300;
@@ -25,7 +25,7 @@ async function fetchGenres(bookId: string): Promise<string[]> {
 }
 
 async function main() {
-  const books = getBooksNeedingGenres(LIMIT);
+  const books = getAllBooksNeedingGenres(LIMIT);
   console.log(`Fetching genres for ${books.length} books...\n`);
 
   for (let i = 0; i < books.length; i++) {
@@ -33,7 +33,7 @@ async function main() {
     process.stdout.write(`[${i + 1}/${books.length}] ${book.title.substring(0, 45)}... `);
 
     const genres = await fetchGenres(book.bookId);
-    updateGenres(book.bookId, genres);
+    updateGenres(book.userId, book.bookId, genres);
 
     if (genres.length > 0) {
       console.log(genres.slice(0, 5).join(", "));

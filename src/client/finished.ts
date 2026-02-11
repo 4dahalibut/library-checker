@@ -9,26 +9,65 @@ interface FinishedBook {
 
 let books: FinishedBook[] = [];
 let isLoggedIn = false;
+let loggedInUsername: string | null = null;
+
+// URL parsing: detect /u/:username/finished
+const pathMatch = window.location.pathname.match(/^\/u\/([^/]+)/);
+const profileUsername: string | null = pathMatch ? pathMatch[1] : null;
+let isOwnProfile = false;
 
 async function loadBooks() {
-  const [booksRes, statusRes] = await Promise.all([
-    fetch("/api/finished"),
-    fetch("/api/status"),
-  ]);
-  const booksData = await booksRes.json();
+  const statusRes = await fetch("/api/status");
   const statusData = await statusRes.json();
-  books = booksData.books || [];
   isLoggedIn = statusData.authenticated || false;
+  loggedInUsername = statusData.username || null;
+
+  // If no profile username, redirect logged-in users
+  if (!profileUsername && isLoggedIn && loggedInUsername) {
+    window.location.href = `/u/${loggedInUsername}/finished`;
+    return;
+  }
+
+  if (!profileUsername) {
+    document.getElementById("app")!.innerHTML = '<center><a href="/">Go to home page</a></center>';
+    return;
+  }
+
+  isOwnProfile = isLoggedIn && loggedInUsername?.toLowerCase() === profileUsername.toLowerCase();
+
+  const booksRes = await fetch(`/api/u/${profileUsername}/finished`);
+  if (!booksRes.ok) {
+    document.getElementById("app")!.innerHTML = `<center><h2>User "${escapeHtml(profileUsername)}" not found</h2><br><a href="/">[Home]</a></center>`;
+    return;
+  }
+  const booksData = await booksRes.json();
+  books = booksData.books || [];
+
+  // Update page title
+  document.title = `${profileUsername}'s Finished Books`;
+  const titleEl = document.getElementById("page-title");
+  if (titleEl) titleEl.textContent = `${profileUsername}'s Finished Books`;
+  const subtitleEl = document.getElementById("page-subtitle");
+  if (subtitleEl) subtitleEl.textContent = "Books read + mini reviews";
+
   render();
 }
 
 function render() {
+  const backLink = profileUsername ? `/u/${escapeHtml(profileUsername)}` : "/";
+
   document.getElementById("app")!.innerHTML = `
     ${isLoggedIn ? `
     <center>
     <input type="button" class="action-btn" value="Logout" onclick="doLogout()">
     </center>
     <hr>
+    ` : ""}
+
+    <center><a href="${backLink}">[Back to Book List]</a>${isLoggedIn ? ` | <a href="/holds.html">[My Holds]</a>` : ""}</center>
+    <hr>
+
+    ${isOwnProfile ? `
     <center><b>Add finished book:</b></center>
     <form class="add-form" onsubmit="addBook(); return false;">
       <div style="display:flex; gap:10px; margin-bottom:5px;">
@@ -60,7 +99,7 @@ function renderBook(book: FinishedBook): string {
     <div class="finished-book" style="margin-bottom:20px; padding-bottom:20px; border-bottom:1px dashed #999;">
       <div style="margin-bottom:5px;">
         <b>${escapeHtml(book.title)}</b>${book.author ? ` <font color="#666">by ${escapeHtml(book.author)}</font>` : ""}
-        ${isLoggedIn ? `<input type="button" class="action-btn" value="X" onclick="deleteBook(${book.id})" title="Delete" style="margin-left:10px; font-size:10px; padding:2px 6px;">` : ""}
+        ${isOwnProfile ? `<input type="button" class="action-btn" value="X" onclick="deleteBook(${book.id})" title="Delete" style="margin-left:10px; font-size:10px; padding:2px 6px;">` : ""}
       </div>
       ${book.vibe ? `<div style="margin-bottom:5px;"><i>${escapeHtml(book.vibe)}</i></div>` : ""}
       ${book.review ? `<div style="white-space:pre-wrap; margin-bottom:5px;">${escapeHtml(book.review)}</div>` : ""}
@@ -128,6 +167,8 @@ async function deleteBook(id: number) {
 async function doLogout() {
   await fetch("/api/logout", { method: "POST" });
   isLoggedIn = false;
+  loggedInUsername = null;
+  isOwnProfile = false;
   render();
 }
 

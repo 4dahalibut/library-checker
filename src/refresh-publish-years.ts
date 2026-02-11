@@ -1,19 +1,9 @@
-import Database from "better-sqlite3";
-
-const db = new Database("data/library.db");
+import { getAllBooksNeedingPublishYears, updatePublishYear } from "./db.js";
 
 const LIMIT = parseInt(process.argv[2] || "50");
 const DELAY_MS = 200;
 
-interface Book {
-  book_id: string;
-  title: string;
-  author: string;
-  isbn13: string | null;
-}
-
 function cleanTitle(title: string): string {
-  // Remove subtitle after colon and anything in parentheses
   return title
     .split(":")[0]
     .replace(/\s*\([^)]*\)/g, "")
@@ -38,19 +28,9 @@ async function fetchPublishYear(title: string, author: string): Promise<number |
 }
 
 async function main() {
-  const books = db
-    .prepare(
-      `SELECT book_id, title, author, isbn13
-       FROM books
-       WHERE publish_year IS NULL
-       ORDER BY date_added DESC
-       LIMIT ?`
-    )
-    .all(LIMIT) as Book[];
-
+  const books = getAllBooksNeedingPublishYears(LIMIT);
   console.log(`Fetching publish years for ${books.length} books...\n`);
 
-  const stmt = db.prepare("UPDATE books SET publish_year = ? WHERE book_id = ?");
   let found = 0;
 
   for (let i = 0; i < books.length; i++) {
@@ -58,7 +38,7 @@ async function main() {
     const year = await fetchPublishYear(book.title, book.author);
 
     if (year) {
-      stmt.run(year, book.book_id);
+      updatePublishYear(book.userId, book.bookId, year);
       console.log(`${i + 1}/${books.length} [${year}] ${book.title}`);
       found++;
     } else {

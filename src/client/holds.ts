@@ -10,6 +10,14 @@ interface Hold {
 }
 
 async function loadHolds() {
+  // Check auth first - holds require login
+  const statusRes = await fetch("/api/status");
+  const statusData = await statusRes.json();
+  if (!statusData.authenticated) {
+    showLoginPrompt();
+    return;
+  }
+
   try {
     const res = await fetch("/api/holds");
     const data = await res.json();
@@ -60,6 +68,43 @@ async function loadHolds() {
   } catch {
     document.getElementById("app")!.innerHTML = '<center><font color="red">Error loading holds</font></center>';
   }
+}
+
+function showLoginPrompt() {
+  document.getElementById("app")!.innerHTML = `
+    <center>
+    <h3>Login to view holds</h3>
+    <form id="login-form" class="add-form" style="max-width:300px;">
+      <input type="text" id="login-username" class="add-input" placeholder="Username" style="margin-bottom:5px;">
+      <input type="password" id="login-password" class="add-input" placeholder="Password" style="margin-bottom:5px;">
+      <input type="submit" value="Login">
+      <div id="login-error" style="color: red; font-size: 12px; margin-top: 5px;"></div>
+    </form>
+    </center>
+  `;
+
+  document.getElementById("login-form")!.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const username = (document.getElementById("login-username") as HTMLInputElement).value;
+    const password = (document.getElementById("login-password") as HTMLInputElement).value;
+    const errorEl = document.getElementById("login-error")!;
+
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+      if (res.ok) {
+        loadHolds();
+      } else {
+        const data = await res.json();
+        errorEl.textContent = data.error || "Login failed";
+      }
+    } catch {
+      errorEl.textContent = "Login failed";
+    }
+  });
 }
 
 function escapeHtml(str: string): string {

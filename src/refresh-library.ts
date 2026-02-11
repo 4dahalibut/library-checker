@@ -1,4 +1,4 @@
-import { getBooksNeedingLibraryCheck, updateLibraryData, Book } from "./db.js";
+import { getAllBooksNeedingLibraryCheck, updateLibraryData, BookWithUser } from "./db.js";
 import { searchByISBN, searchByTitleAuthor } from "./library.js";
 
 const LIMIT = parseInt(process.argv[2] || "50", 10);
@@ -10,7 +10,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function processBook(book: Book, index: number, total: number): Promise<string> {
+async function processBook(book: BookWithUser, index: number, total: number): Promise<string> {
   let result = await searchByISBN(book.isbn13 || book.isbn);
   if (!result) {
     result = await searchByTitleAuthor(book.title, book.author);
@@ -20,6 +20,7 @@ async function processBook(book: Book, index: number, total: number): Promise<st
 
   if (result) {
     updateLibraryData(
+      book.userId,
       book.bookId,
       result.status,
       result.availableCopies,
@@ -33,13 +34,13 @@ async function processBook(book: Book, index: number, total: number): Promise<st
     const shIndicator = result.squirrelHillAvailable ? " \x1b[36m@SH\x1b[0m" : "";
     return `${prefix} ${icon} ${result.availableCopies}/${result.totalCopies}${shIndicator}`;
   } else {
-    updateLibraryData(book.bookId, "NOT_FOUND", null, null, null, null, null, false);
+    updateLibraryData(book.userId, book.bookId, "NOT_FOUND", null, null, null, null, null, false);
     return `${prefix} \x1b[31m✗\x1b[0m not found`;
   }
 }
 
 async function main() {
-  const books = getBooksNeedingLibraryCheck(LIMIT, OLDEST_FIRST);
+  const books = getAllBooksNeedingLibraryCheck(LIMIT, OLDEST_FIRST);
   console.log(`Checking ${books.length} books${OLDEST_FIRST ? ' (oldest first)' : ''} with ${CONCURRENCY} concurrent requests...\n`);
 
   for (let i = 0; i < books.length; i += CONCURRENCY) {

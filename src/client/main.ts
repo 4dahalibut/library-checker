@@ -69,22 +69,129 @@ let currentGenre: string | null = null;
 let currentCulture: string | null = null;
 let searchQuery = "";
 let isLoggedIn = false;
+let loggedInUsername: string | null = null;
+
+// URL parsing: detect /u/:username
+const pathMatch = window.location.pathname.match(/^\/u\/([^/]+)/);
+const profileUsername: string | null = pathMatch ? pathMatch[1] : null;
+let isOwnProfile = false;
 
 async function loadBooks() {
-  const [booksRes, recsRes, statusRes] = await Promise.all([
-    fetch("/api/books"),
-    fetch("/api/recommendations"),
-    fetch("/api/status"),
+  // Get auth status first
+  const statusRes = await fetch("/api/status");
+  const statusData = await statusRes.json();
+  isLoggedIn = statusData.authenticated || false;
+  loggedInUsername = statusData.username || null;
+
+  // If at root and logged in, redirect to own profile
+  if (!profileUsername && isLoggedIn && loggedInUsername) {
+    window.location.href = `/u/${loggedInUsername}`;
+    return;
+  }
+
+  // If at root and not logged in, show landing page
+  if (!profileUsername) {
+    isOwnProfile = false;
+    renderLanding();
+    return;
+  }
+
+  // On a user profile page
+  isOwnProfile = isLoggedIn && loggedInUsername?.toLowerCase() === profileUsername.toLowerCase();
+
+  const [booksRes, recsRes] = await Promise.all([
+    fetch(`/api/u/${profileUsername}/books`),
+    fetch(`/api/u/${profileUsername}/recommendations`),
   ]);
+
+  if (!booksRes.ok) {
+    document.getElementById("app")!.innerHTML = `<center><h2>User "${escapeHtml(profileUsername)}" not found</h2><br><a href="/">[Home]</a></center>`;
+    return;
+  }
+
   const booksData = await booksRes.json();
   const recsData = await recsRes.json();
-  const statusData = await statusRes.json();
   allBooks = booksData.books || [];
   stats = booksData.stats || {};
   genres = booksData.genres || [];
   recommendations = recsData.recommendations || [];
-  isLoggedIn = statusData.authenticated || false;
+
+  // Update page title
+  document.title = `${profileUsername}'s Book List`;
+  const titleEl = document.getElementById("page-title");
+  if (titleEl) titleEl.textContent = `${profileUsername}'s Book List`;
+
   render();
+}
+
+function renderLanding() {
+  document.getElementById("app")!.innerHTML = `
+    <center>
+    <h2>Login</h2>
+    <form id="login-form" class="add-form">
+      <input type="text" id="login-username" class="add-input" placeholder="Username" style="margin-bottom:5px;">
+      <input type="password" id="login-password" class="add-input" placeholder="Password" style="margin-bottom:5px;">
+      <input type="submit" value="Login">
+      <div id="login-error" style="color: red; font-size: 12px; margin-top: 5px;"></div>
+    </form>
+
+    <hr>
+
+    <h2>Create Account</h2>
+    <form id="register-form" class="add-form">
+      <input type="text" id="register-username" class="add-input" placeholder="Username" style="margin-bottom:5px;">
+      <input type="password" id="register-password" class="add-input" placeholder="Password" style="margin-bottom:5px;">
+      <input type="submit" value="Register">
+      <div id="register-error" style="color: red; font-size: 12px; margin-top: 5px;"></div>
+    </form>
+    </center>
+  `;
+
+  document.getElementById("login-form")!.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const username = (document.getElementById("login-username") as HTMLInputElement).value;
+    const password = (document.getElementById("login-password") as HTMLInputElement).value;
+    const errorEl = document.getElementById("login-error")!;
+
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        window.location.href = `/u/${data.username}`;
+      } else {
+        errorEl.textContent = data.error || "Login failed";
+      }
+    } catch {
+      errorEl.textContent = "Login failed";
+    }
+  });
+
+  document.getElementById("register-form")!.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const username = (document.getElementById("register-username") as HTMLInputElement).value;
+    const password = (document.getElementById("register-password") as HTMLInputElement).value;
+    const errorEl = document.getElementById("register-error")!;
+
+    try {
+      const res = await fetch("/api/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        window.location.href = `/u/${data.username}`;
+      } else {
+        errorEl.textContent = data.error || "Registration failed";
+      }
+    } catch {
+      errorEl.textContent = "Registration failed";
+    }
+  });
 }
 
 function render() {
@@ -106,14 +213,26 @@ function render() {
   }
   filtered = sortBooks(filtered, currentSort);
 
+  const navLinks = [];
+  if (profileUsername) {
+    navLinks.push(`<a href="/u/${escapeHtml(profileUsername)}/finished">[Finished Books]</a>`);
+  }
+  if (isLoggedIn) {
+    navLinks.push(`<a href="/holds.html">[My Holds]</a>`);
+  }
+
   document.getElementById("app")!.innerHTML = `
     ${isLoggedIn ? `
-    <center><a href="#" onclick="doLogout(); return false;">[Logout]</a></center>
+    <center><a href="#" onclick="doLogout(); return false;">[Logout${loggedInUsername ? ' ' + escapeHtml(loggedInUsername) : ''}]</a>${!isOwnProfile && loggedInUsername ? ` | <a href="/u/${escapeHtml(loggedInUsername)}">[My List]</a>` : ''}</center>
     <hr>
-    ` : `
+    ` : ""}
+
+    ${navLinks.length > 0 ? `<center>${navLinks.join(" | ")}</center><hr>` : ""}
+
+    ${!isOwnProfile ? `
     <center><h3>Recommend a Book</h3></center>
     <form class="add-form" onsubmit="submitRecommendation(); return false;">
-      <font size="2">Suggest a book for Josh to read:</font><br>
+      <font size="2">Suggest a book for ${escapeHtml(profileUsername || "this user")} to read:</font><br>
       <input type="text" id="rec-title" class="add-input" placeholder="Book title" style="margin-bottom:5px;">
       <input type="text" id="rec-author" class="add-input" placeholder="Author (optional)" style="margin-bottom:5px;">
       <input type="text" id="rec-name" class="add-input" placeholder="Your name">
@@ -143,6 +262,29 @@ function render() {
     ` : ""}
 
     <hr>
+    ` : `
+    ${recommendations.length > 0 ? `
+    <center><b>Recommendations from friends:</b></center>
+    <div class="table-scroll">
+    <table class="data-table">
+      <tr bgcolor="#cccccc">
+        <th align="left">Title</th>
+        <th align="left">Author</th>
+        <th align="left">Recommended by</th>
+        <th></th>
+      </tr>
+      ${recommendations.map(r => `
+        <tr>
+          <td>${escapeHtml(r.title)}</td>
+          <td><font size="2">${escapeHtml(r.author || "")}</font></td>
+          <td><font size="2">${escapeHtml(r.recommendedBy)}</font></td>
+          <td><input type="button" class="action-btn" value="X" onclick="deleteRecommendation(${r.id})" title="Delete" style="font-size:10px; padding:2px 6px;"></td>
+        </tr>
+      `).join("")}
+    </table>
+    </div>
+    <hr>
+    ` : ""}
     `}
 
     <center>
@@ -177,6 +319,7 @@ function render() {
 
     <hr>
 
+    ${isOwnProfile ? `
     <form class="add-form" onsubmit="addBook(); return false;">
       <font size="2">Add book (ISBN or keyword):</font><br>
       <input type="text" id="add-input" class="add-input" placeholder="ISBN or title...">
@@ -185,6 +328,7 @@ function render() {
     </form>
 
     <hr>
+    ` : ""}
 
     ${
       genres.length > 0
@@ -232,7 +376,7 @@ function render() {
         <th align="center">Status</th>
         <th align="center">Info</th>
         <th align="center">Links</th>
-        <th align="center">Actions</th>
+        ${isOwnProfile ? `<th align="center">Actions</th>` : ""}
       </tr>
       ${filtered.map(renderBook).join("")}
     </table>
@@ -240,15 +384,6 @@ function render() {
 
     <hr>
 
-    <div class="commands">
-    <b>Commands:</b><br>
-    npm run import - Import from Goodreads CSV<br>
-    npm run refresh:library 200 - Check library<br>
-    npm run refresh:ratings 200 - Fetch ratings<br>
-    npm run refresh:genres 200 - Fetch genres
-    </div>
-
-    <hr>
     <div class="footer">
     <i>Last updated: ${new Date().toLocaleDateString()}</i>
     </div>
@@ -318,7 +453,6 @@ function setCulture(c: string | null) {
 function handleSearch(query: string) {
   searchQuery = query;
   render();
-  // Restore focus to search input after re-render
   const input = document.getElementById("search-input") as HTMLInputElement;
   if (input) {
     input.focus();
@@ -344,119 +478,128 @@ async function addBook() {
   const query = input.value.trim();
   if (!query) return;
 
-  checkAuthAndRun(async () => {
-    // Check if it looks like an ISBN (10 or 13 digits, possibly with hyphens)
-    const cleanedQuery = query.replace(/-/g, "");
-    const isISBN = /^\d{10}(\d{3})?$/.test(cleanedQuery);
+  const cleanedQuery = query.replace(/-/g, "");
+  const isISBN = /^\d{10}(\d{3})?$/.test(cleanedQuery);
 
-    status.textContent = "Looking up...";
-    try {
-      const res = await fetch("/api/add-book", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(isISBN ? { isbn: cleanedQuery } : { keyword: query }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        status.textContent = "Added: " + data.title;
-        input.value = "";
-        // Reset filters and scroll to top to see the new book
-        currentFilter = "all";
-        currentSort = "date";
-        currentGenre = null;
-        currentCulture = null;
-        searchQuery = "";
-        await loadBooks();
-        window.scrollTo(0, 0);
-      } else {
-        status.textContent = data.error || "Not found";
-      }
-    } catch {
-      status.textContent = "Error adding book";
+  status.textContent = "Looking up...";
+  try {
+    const res = await fetch("/api/add-book", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(isISBN ? { isbn: cleanedQuery } : { keyword: query }),
+    });
+    if (res.status === 401) {
+      status.textContent = "Please log in first";
+      return;
     }
-  });
+    const data = await res.json();
+    if (data.success) {
+      status.textContent = "Added: " + data.title;
+      input.value = "";
+      currentFilter = "all";
+      currentSort = "date";
+      currentGenre = null;
+      currentCulture = null;
+      searchQuery = "";
+      await loadBooks();
+      window.scrollTo(0, 0);
+    } else {
+      status.textContent = data.error || "Not found";
+    }
+  } catch {
+    status.textContent = "Error adding book";
+  }
 }
 
 async function deleteBookById(bookId: string) {
   if (!confirm("Delete this book?")) return;
-  checkAuthAndRun(async () => {
-    try {
-      await fetch("/api/book/" + encodeURIComponent(bookId), { method: "DELETE" });
-      allBooks = allBooks.filter((b) => b.bookId !== bookId);
+  try {
+    const res = await fetch("/api/book/" + encodeURIComponent(bookId), { method: "DELETE" });
+    if (res.status === 401) return;
+    allBooks = allBooks.filter((b) => b.bookId !== bookId);
+    render();
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+async function deleteRecommendation(id: number) {
+  if (!confirm("Delete this recommendation?")) return;
+  try {
+    const res = await fetch("/api/recommendations/" + id, { method: "DELETE" });
+    if (res.ok) {
+      recommendations = recommendations.filter(r => r.id !== id);
       render();
-    } catch (e) {
-      console.error(e);
     }
-  });
+  } catch (e) {
+    console.error(e);
+  }
 }
 
 async function togglePinBook(bookId: string) {
-  checkAuthAndRun(async () => {
-    try {
-      const res = await fetch("/api/pin/" + encodeURIComponent(bookId), { method: "POST" });
-      const data = await res.json();
-      const idx = allBooks.findIndex((b) => b.bookId === bookId);
-      if (idx >= 0) allBooks[idx].pinned = data.pinned;
-      render();
-    } catch (e) {
-      console.error(e);
-    }
-  });
+  try {
+    const res = await fetch("/api/pin/" + encodeURIComponent(bookId), { method: "POST" });
+    if (res.status === 401) return;
+    const data = await res.json();
+    const idx = allBooks.findIndex((b) => b.bookId === bookId);
+    if (idx >= 0) allBooks[idx].pinned = data.pinned;
+    render();
+  } catch (e) {
+    console.error(e);
+  }
 }
 
 async function refreshBook(bookId: string, event: Event) {
   const btn = event.target as HTMLInputElement;
-  checkAuthAndRun(async () => {
-    btn.disabled = true;
-    btn.value = "...";
-    try {
-      const res = await fetch("/api/refresh/" + bookId, { method: "POST" });
-      const updated = await res.json();
-      const idx = allBooks.findIndex((b) => b.bookId === bookId);
-      if (idx >= 0) allBooks[idx] = { ...allBooks[idx], ...updated };
-      render();
-    } catch (e) {
-      console.error(e);
+  btn.disabled = true;
+  btn.value = "...";
+  try {
+    const res = await fetch("/api/refresh/" + bookId, { method: "POST" });
+    if (res.status === 401) {
       btn.disabled = false;
       btn.value = "Refresh";
+      return;
     }
-  });
+    const updated = await res.json();
+    const idx = allBooks.findIndex((b) => b.bookId === bookId);
+    if (idx >= 0) allBooks[idx] = { ...allBooks[idx], ...updated };
+    render();
+  } catch (e) {
+    console.error(e);
+    btn.disabled = false;
+    btn.value = "Refresh";
+  }
 }
 
 async function holdBook(title: string, author: string, event: Event) {
   const btn = event.target as HTMLInputElement;
 
-  checkAuthAndRun(async () => {
-    btn.disabled = true;
-    btn.value = "...";
+  btn.disabled = true;
+  btn.value = "...";
 
-    try {
-      // Search for all editions
-      const query = `${title} ${author}`;
-      const res = await fetch(`/api/editions?q=${encodeURIComponent(query)}`);
-      const data = await res.json();
-      const editions: Edition[] = data.editions || [];
+  try {
+    const query = `${title} ${author}`;
+    const res = await fetch(`/api/editions?q=${encodeURIComponent(query)}`);
+    const data = await res.json();
+    const editions: Edition[] = data.editions || [];
 
-      if (editions.length === 0) {
-        alert("No editions found in library");
-        btn.value = "Hold";
-        btn.disabled = false;
-        return;
-      }
-
-      // Show modal with editions
-      showEditionsModal(title, editions, btn);
-    } catch (e) {
-      console.error(e);
-      alert("Error searching for editions");
+    if (editions.length === 0) {
+      alert("No editions found in library");
       btn.value = "Hold";
       btn.disabled = false;
+      return;
     }
-  });
+
+    showEditionsModal(title, editions, btn);
+  } catch (e) {
+    console.error(e);
+    alert("Error searching for editions");
+    btn.value = "Hold";
+    btn.disabled = false;
+  }
 }
 
 function showEditionsModal(bookTitle: string, editions: Edition[], holdBtn: HTMLInputElement) {
-  // Remove existing modal if any
   const existing = document.getElementById("editions-modal");
   if (existing) existing.remove();
 
@@ -468,7 +611,7 @@ function showEditionsModal(bookTitle: string, editions: Edition[], holdBtn: HTML
     return branches.map(b => {
       let text = b.name;
       if (b.status === "AVAILABLE") {
-        text += ' <font color="green">✓ Available</font>';
+        text += ' <font color="green">Available</font>';
       } else if (b.dueDate) {
         const due = new Date(b.dueDate);
         text += ` <font color="#cc9900">due ${due.toLocaleDateString("en-US", { month: "short", day: "numeric" })}</font>`;
@@ -485,7 +628,6 @@ function showEditionsModal(bookTitle: string, editions: Edition[], holdBtn: HTML
       ? `${ed.availableCopies} available`
       : `Checked out${ed.heldCopies ? ` (${ed.heldCopies} holds)` : ""}`;
 
-    // Build edition description with subtitle, series, year, translator
     let editionDesc = escapeHtml(ed.title);
     if (ed.subtitle) {
       editionDesc += `<br><font size="1" color="#666">${escapeHtml(ed.subtitle)}</font>`;
@@ -576,7 +718,6 @@ function closeEditionsModal() {
   const modal = document.getElementById("editions-modal");
   if (modal) {
     modal.remove();
-    // Re-enable hold buttons
     const holdBtns = document.querySelectorAll('input[value="..."]') as NodeListOf<HTMLInputElement>;
     holdBtns.forEach(btn => {
       btn.value = "Hold";
@@ -586,19 +727,17 @@ function closeEditionsModal() {
 }
 
 async function saveNotes(bookId: string, notes: string) {
-  checkAuthAndRun(async () => {
-    try {
-      await fetch("/api/notes/" + encodeURIComponent(bookId), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notes }),
-      });
-      const idx = allBooks.findIndex((b) => b.bookId === bookId);
-      if (idx >= 0) allBooks[idx].notes = notes;
-    } catch (e) {
-      console.error(e);
-    }
-  });
+  try {
+    await fetch("/api/notes/" + encodeURIComponent(bookId), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notes }),
+    });
+    const idx = allBooks.findIndex((b) => b.bookId === bookId);
+    if (idx >= 0) allBooks[idx].notes = notes;
+  } catch (e) {
+    console.error(e);
+  }
 }
 
 function renderBook(book: Book): string {
@@ -638,8 +777,7 @@ function renderBook(book: Book): string {
     <tr${book.pinned ? ' class="row-pinned"' : ""}>
       <td>
         ${book.pinned ? "<b>* " : ""}${escapeHtml(book.title)}${book.pinned ? "</b>" : ""}
-        <br>
-        <input type="text" class="notes-input" placeholder="Add notes..." value="${escapeHtml(book.notes || "")}" onchange="saveNotes('${book.bookId}', this.value)">
+        ${isOwnProfile ? `<br><input type="text" class="notes-input" placeholder="Add notes..." value="${escapeHtml(book.notes || "")}" onchange="saveNotes('${book.bookId}', this.value)">` : (book.notes ? `<br><font size="1" color="#666"><i>${escapeHtml(book.notes)}</i></font>` : "")}
       </td>
       <td><font size="2">${escapeHtml(book.author || "")}</font></td>
       <td align="center"><font size="2">${book.publishYear || ""}</font></td>
@@ -664,12 +802,14 @@ function renderBook(book: Book): string {
           ${isbn ? `<br><a href="https://www.thriftbooks.com/browse/?b.search=${isbn}" target="_blank">ThriftBooks</a>` : ""}
         </font>
       </td>
+      ${isOwnProfile ? `
       <td align="center" style="white-space:nowrap">
         <input type="button" class="action-btn" value="${book.pinned ? "Unpin" : "Pin"}" onclick="togglePinBook('${book.bookId}')">
         <input type="button" class="action-btn" value="Refresh" onclick="refreshBook('${book.bookId}', event)">
         ${!isNotPhysicalBook(book) && book.libraryStatus && book.libraryStatus !== "NOT_FOUND" ? `<input type="button" class="action-btn" value="Hold" onclick="holdBook('${escapeHtml(book.title.replace(/'/g, "\\\'"))}', '${escapeHtml((book.author || "").replace(/'/g, "\\\'"))}', event)">` : ""}
         <input type="button" class="action-btn" value="X" onclick="deleteBookById('${book.bookId}')" title="Remove from list">
       </td>
+      ` : ""}
     </tr>
   `;
 }
@@ -678,58 +818,16 @@ function escapeHtml(str: string): string {
   return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-function showLoginPrompt(callback: () => void) {
-  const modal = document.createElement("div");
-  modal.id = "login-modal";
-  modal.className = "modal-overlay";
-  modal.innerHTML = `
-    <div class="modal-content" style="max-width: 300px;">
-      <form id="login-form">
-        <b>Password:</b><br>
-        <input type="password" id="login-password" class="search-input" style="width:100%; margin: 10px 0;">
-        <div class="modal-buttons">
-          <input type="submit" value="OK">
-          <input type="button" value="Cancel" onclick="closeLoginModal()">
-        </div>
-        <div id="login-error" style="color: red; font-size: 12px; margin-top: 5px; text-align:center;"></div>
-      </form>
-    </div>
-  `;
-
-  const form = modal.querySelector("#login-form") as HTMLFormElement;
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const password = (document.getElementById("login-password") as HTMLInputElement).value;
-    try {
-      const res = await fetch("/api/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      });
-      if (res.ok) {
-        closeLoginModal();
-        callback();
-      } else {
-        document.getElementById("login-error")!.textContent = "Wrong password";
-      }
-    } catch {
-      document.getElementById("login-error")!.textContent = "Login failed";
-    }
-  });
-
-  document.body.appendChild(modal);
-  (document.getElementById("login-password") as HTMLInputElement).focus();
-}
-
-function closeLoginModal() {
-  const modal = document.getElementById("login-modal");
-  if (modal) modal.remove();
-}
-
 async function doLogout() {
   await fetch("/api/logout", { method: "POST" });
   isLoggedIn = false;
-  render();
+  loggedInUsername = null;
+  isOwnProfile = false;
+  if (!profileUsername) {
+    renderLanding();
+  } else {
+    render();
+  }
 }
 
 async function submitRecommendation() {
@@ -749,7 +847,7 @@ async function submitRecommendation() {
 
   status.textContent = "Submitting...";
   try {
-    const res = await fetch("/api/recommendations", {
+    const res = await fetch(`/api/u/${profileUsername}/recommendations`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title, author: author || null, recommendedBy }),
@@ -770,16 +868,6 @@ async function submitRecommendation() {
   }
 }
 
-async function checkAuthAndRun(action: () => void) {
-  const res = await fetch("/api/status");
-  const data = await res.json();
-  if (data.authenticated) {
-    action();
-  } else {
-    showLoginPrompt(action);
-  }
-}
-
 // Expose functions to global scope for onclick handlers
 declare global {
   interface Window {
@@ -790,12 +878,12 @@ declare global {
     handleSearch: typeof handleSearch;
     addBook: typeof addBook;
     deleteBookById: typeof deleteBookById;
+    deleteRecommendation: typeof deleteRecommendation;
     togglePinBook: typeof togglePinBook;
     refreshBook: typeof refreshBook;
     holdBook: typeof holdBook;
     saveNotes: typeof saveNotes;
     closeEditionsModal: typeof closeEditionsModal;
-    closeLoginModal: typeof closeLoginModal;
     submitRecommendation: typeof submitRecommendation;
     doLogout: typeof doLogout;
   }
@@ -808,12 +896,12 @@ window.setCulture = setCulture;
 window.handleSearch = handleSearch;
 window.addBook = addBook;
 window.deleteBookById = deleteBookById;
+window.deleteRecommendation = deleteRecommendation;
 window.togglePinBook = togglePinBook;
 window.refreshBook = refreshBook;
 window.holdBook = holdBook;
 window.saveNotes = saveNotes;
 window.closeEditionsModal = closeEditionsModal;
-window.closeLoginModal = closeLoginModal;
 window.submitRecommendation = submitRecommendation;
 window.doLogout = doLogout;
 

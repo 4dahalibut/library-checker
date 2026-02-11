@@ -10,6 +10,22 @@ export default defineConfig({
     },
   },
   plugins: [
+    {
+      name: "rewrite-user-routes",
+      configureServer(server) {
+        server.middlewares.use((req, _res, next) => {
+          // Rewrite /u/:username to /index.html for SPA routing
+          if (req.url && /^\/u\/[^/]+\/?$/.test(req.url)) {
+            req.url = "/index.html";
+          }
+          // Rewrite /u/:username/finished to /finished.html
+          if (req.url && /^\/u\/[^/]+\/finished\/?$/.test(req.url)) {
+            req.url = "/finished.html";
+          }
+          next();
+        });
+      },
+    },
     VitePWA({
       registerType: "autoUpdate",
       workbox: {
@@ -30,10 +46,10 @@ export default defineConfig({
         ],
       },
       manifest: {
-        name: "Josh's Book List - Library Checker",
+        name: "Book List - Library Checker",
         short_name: "Book List",
         description:
-          "Goodreads Want to Read + Carnegie Library of Pittsburgh availability",
+          "Want to Read + Carnegie Library of Pittsburgh availability",
         theme_color: "#f0f0f0",
         background_color: "#f0f0f0",
         display: "standalone",

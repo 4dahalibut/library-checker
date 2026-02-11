@@ -1,4 +1,4 @@
-import { getBooksNeedingRatings, updateNumRatings } from "./db.js";
+import { getAllBooksNeedingRatings, updateNumRatings } from "./db.js";
 import { fetchNumRatings } from "./goodreads.js";
 
 const LIMIT = parseInt(process.argv[2] || "100", 10);
@@ -9,7 +9,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function main() {
-  const books = getBooksNeedingRatings(LIMIT);
+  const books = getAllBooksNeedingRatings(LIMIT);
   console.log(`Fetching Goodreads ratings for ${books.length} books...\n`);
 
   for (let i = 0; i < books.length; i++) {
@@ -17,7 +17,7 @@ async function main() {
     process.stdout.write(`[${i + 1}/${books.length}] ${book.title.substring(0, 50)}... `);
 
     const numRatings = await fetchNumRatings(book.bookId);
-    updateNumRatings(book.bookId, numRatings);
+    updateNumRatings(book.userId, book.bookId, numRatings);
     console.log(`${numRatings.toLocaleString()} ratings`);
 
     await sleep(DELAY_MS);

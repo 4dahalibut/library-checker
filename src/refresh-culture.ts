@@ -1,8 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { getBooksNeedingCulture, updateCulture } from "./db.js";
+import { getAllBooksNeedingCulture, updateCulture } from "./db.js";
 import "dotenv/config";
 
-const BATCH_SIZE = 10; // Smaller batches since we're using web search
+const BATCH_SIZE = 10;
 const LIMIT = parseInt(process.argv[2] || "100", 10);
 
 const CULTURES = [
@@ -31,6 +31,7 @@ const CULTURES = [
 const client = new Anthropic();
 
 interface BookInput {
+  userId: number;
   bookId: string;
   title: string;
   author: string;
@@ -94,7 +95,7 @@ After researching any unknown authors, return ONLY a JSON array: [{"book_id": "1
 }
 
 async function main() {
-  const books = getBooksNeedingCulture(LIMIT);
+  const books = getAllBooksNeedingCulture(LIMIT);
   console.log(`Classifying ${books.length} books in batches of ${BATCH_SIZE}...\n`);
 
   let processed = 0;
@@ -108,7 +109,7 @@ async function main() {
     for (const result of results) {
       const book = batch.find((b) => b.bookId === result.book_id);
       if (book && CULTURES.includes(result.culture)) {
-        updateCulture(result.book_id, result.culture);
+        updateCulture(book.userId, result.book_id, result.culture);
         console.log(`  [${result.culture}] ${book.title.substring(0, 50)}`);
         processed++;
       }

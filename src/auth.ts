@@ -1,63 +1,83 @@
-import { randomBytes, timingSafeEqual } from "crypto";
+import { randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { Request, Response, NextFunction } from "express";
 import { db } from "./db.js";
 
-const PASSWORD = process.env.AUTH_PASSWORD || "12327791";
 const EXPIRATION_DAYS = parseInt(process.env.SESSION_EXPIRATION_DAYS || "60");
 
 // Initialize sessions table
 db.exec(`
   CREATE TABLE IF NOT EXISTS sessions (
     session_id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
     created_at TEXT NOT NULL,
     expires_at TEXT NOT NULL
   )
 `);
 
+// Migrate sessions table to add user_id if missing
+try {
+  db.exec(`ALTER TABLE sessions ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0`);
+} catch {
+  // Column already exists
+}
+
+// Extend Express Request type
+declare global {
+  namespace Express {
+    interface Request {
+      user?: { userId: number; username: string };
+    }
+  }
+}
+
+export function hashPassword(password: string): string {
+  const salt = randomBytes(16).toString("hex");
+  const hash = scryptSync(password, salt, 64).toString("hex");
+  return `${salt}:${hash}`;
+}
+
+export function verifyPassword(password: string, storedHash: string): boolean {
+  const [salt, hash] = storedHash.split(":");
+  const hashBuffer = Buffer.from(hash, "hex");
+  const derivedBuffer = scryptSync(password, salt, 64);
+  return timingSafeEqual(hashBuffer, derivedBuffer);
+}
+
 export function generateSessionId(): string {
   return randomBytes(32).toString("hex");
 }
 
-export function createSession(): string {
+export function createSession(userId: number): string {
   const sessionId = generateSessionId();
   const now = new Date();
   const expires = new Date(now.getTime() + EXPIRATION_DAYS * 24 * 60 * 60 * 1000);
 
   db.prepare(`
-    INSERT INTO sessions (session_id, created_at, expires_at)
-    VALUES (?, ?, ?)
-  `).run(sessionId, now.toISOString(), expires.toISOString());
+    INSERT INTO sessions (session_id, user_id, created_at, expires_at)
+    VALUES (?, ?, ?, ?)
+  `).run(sessionId, userId, now.toISOString(), expires.toISOString());
 
-  // Clean up expired sessions while we're here
+  // Clean up expired sessions
   db.prepare(`DELETE FROM sessions WHERE expires_at < ?`).run(now.toISOString());
 
   return sessionId;
 }
 
-export function verifySession(sessionId: string | undefined): boolean {
-  if (!sessionId) return false;
+export function getSessionUser(sessionId: string | undefined): { userId: number; username: string } | null {
+  if (!sessionId) return null;
 
-  const session = db.prepare(`
-    SELECT * FROM sessions WHERE session_id = ? AND expires_at > ?
-  `).get(sessionId, new Date().toISOString());
+  const row = db.prepare(`
+    SELECT s.user_id as userId, u.username
+    FROM sessions s
+    JOIN users u ON s.user_id = u.id
+    WHERE s.session_id = ? AND s.expires_at > ?
+  `).get(sessionId, new Date().toISOString()) as { userId: number; username: string } | undefined;
 
-  return !!session;
+  return row || null;
 }
 
 export function deleteSession(sessionId: string): void {
   db.prepare(`DELETE FROM sessions WHERE session_id = ?`).run(sessionId);
-}
-
-export function validateCredentials(password: string): boolean {
-  // Constant-time comparison for password
-  const passwordBuffer = Buffer.from(password);
-  const expectedBuffer = Buffer.from(PASSWORD);
-
-  if (passwordBuffer.length !== expectedBuffer.length) {
-    return false;
-  }
-
-  return timingSafeEqual(passwordBuffer, expectedBuffer);
 }
 
 export function parseCookies(cookieHeader: string | undefined): Record<string, string> {
@@ -73,8 +93,10 @@ export function parseCookies(cookieHeader: string | undefined): Record<string, s
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
   const cookies = parseCookies(req.headers.cookie);
   const sessionId = cookies.session_id;
+  const user = getSessionUser(sessionId);
 
-  if (verifySession(sessionId)) {
+  if (user) {
+    req.user = user;
     next();
   } else {
     res.status(401).json({ error: "Unauthorized" });
