@@ -581,17 +581,31 @@ async function refreshBook(bookId: string, event: Event) {
   }
 }
 
-async function holdBook(title: string, author: string, event: Event) {
+async function holdBook(title: string, author: string, bibId: string, event: Event) {
   const btn = event.target as HTMLInputElement;
 
   btn.disabled = true;
   btn.value = "...";
 
   try {
-    const query = `${title} ${author}`;
-    const res = await fetch(`/api/editions?q=${encodeURIComponent(query)}`);
-    const data = await res.json();
-    const editions: Edition[] = data.editions || [];
+    let editions: Edition[];
+
+    if (bibId) {
+      const res = await fetch(`/api/edition/${encodeURIComponent(bibId)}`);
+      const data = await res.json();
+      if (data.edition) {
+        editions = [data.edition];
+      } else {
+        // Fall back to search if single-bib fetch fails
+        const searchRes = await fetch(`/api/editions?q=${encodeURIComponent(`${title} ${author}`)}`);
+        const searchData = await searchRes.json();
+        editions = searchData.editions || [];
+      }
+    } else {
+      const res = await fetch(`/api/editions?q=${encodeURIComponent(`${title} ${author}`)}`);
+      const data = await res.json();
+      editions = data.editions || [];
+    }
 
     if (editions.length === 0) {
       alert("No editions found in library");
@@ -816,7 +830,7 @@ function renderBook(book: Book): string {
       <td align="center" style="white-space:nowrap">
         <input type="button" class="action-btn" value="${book.pinned ? "Unpin" : "Pin"}" onclick="togglePinBook('${book.bookId}')">
         <input type="button" class="action-btn" value="Refresh" onclick="refreshBook('${book.bookId}', event)">
-        ${!isNotPhysicalBook(book) && book.libraryStatus && book.libraryStatus !== "NOT_FOUND" ? `<input type="button" class="action-btn" value="Hold" onclick="holdBook('${escapeHtml(book.title.replace(/'/g, "\\\'"))}', '${escapeHtml((book.author || "").replace(/'/g, "\\\'"))}', event)">` : ""}
+        ${!isNotPhysicalBook(book) && book.libraryStatus && book.libraryStatus !== "NOT_FOUND" ? `<input type="button" class="action-btn" value="Hold" onclick="holdBook('${escapeHtml(book.title.replace(/'/g, "\\\'"))}', '${escapeHtml((book.author || "").replace(/'/g, "\\\'"))}', '${bibId || ""}', event)">` : ""}
         <input type="button" class="action-btn" value="X" onclick="deleteBookById('${book.bookId}')" title="Remove from list">
       </td>
       ` : ""}
@@ -891,7 +905,7 @@ declare global {
     deleteRecommendation: typeof deleteRecommendation;
     togglePinBook: typeof togglePinBook;
     refreshBook: typeof refreshBook;
-    holdBook: typeof holdBook;
+    holdBook: (title: string, author: string, bibId: string, event: Event) => Promise<void>;
     saveNotes: typeof saveNotes;
     closeEditionsModal: typeof closeEditionsModal;
     submitRecommendation: typeof submitRecommendation;

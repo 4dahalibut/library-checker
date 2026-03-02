@@ -1,6 +1,37 @@
+import Anthropic from "@anthropic-ai/sdk";
 import type { LibraryAvailability } from "./types.js";
 
 const API_BASE = "https://gateway.bibliocommons.com/v2/libraries/acl";
+const anthropic = new Anthropic();
+
+async function isMatchingBook(
+  queryTitle: string,
+  queryAuthor: string,
+  resultTitle: string,
+  resultAuthors: string[]
+): Promise<boolean> {
+  // Skip for ISBN-like queries
+  if (/^[\d\-\s]+$/.test(queryTitle)) return true;
+
+  try {
+    const message = await anthropic.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 10,
+      messages: [{
+        role: "user",
+        content: `Does this library catalog entry match the book I'm looking for?
+Book I want: "${queryTitle}" by "${queryAuthor}"
+Library result: "${resultTitle}" by "${resultAuthors.join(", ")}"
+Answer YES or NO only.`
+      }]
+    });
+    const answer = (message.content[0] as { text: string }).text.trim().toUpperCase();
+    return answer.startsWith("YES");
+  } catch (error) {
+    console.error("Haiku match check failed, allowing match:", error);
+    return true;
+  }
+}
 
 interface BiblioSearchResponse {
   catalogSearch: {
@@ -97,7 +128,8 @@ async function checkSquirrelHillAvailability(bibId: string): Promise<boolean> {
 }
 
 export async function searchLibrary(
-  query: string
+  query: string,
+  queryMeta?: { title: string; author: string }
 ): Promise<LibraryAvailability | null> {
   const encoded = encodeURIComponent(query);
   const url = `${API_BASE}/bibs/search?query=${encoded}&searchType=smart&limit=20&locale=en-US`;
@@ -114,7 +146,43 @@ export async function searchLibrary(
 
     // Fall back to any English result if no physical books
     const englishEntries = entries.filter(([, bib]) => bib.briefInfo.primaryLanguage === "eng");
-    const [bibId, bib] = bookEntries[0] || englishEntries[0] || [];
+
+    type BibPair = (typeof entries)[0];
+    let matched: BibPair | undefined;
+
+    if (queryMeta) {
+      // Vet bookEntries in parallel with Haiku
+      if (bookEntries.length > 0) {
+        const checks = await Promise.all(
+          bookEntries.map(async (pair) => {
+            const [, b] = pair;
+            const ok = await isMatchingBook(queryMeta.title, queryMeta.author, b.briefInfo.title, b.briefInfo.authors || []);
+            return ok ? pair : null;
+          })
+        );
+        matched = checks.find(r => r !== null) ?? undefined;
+      }
+
+      // If no match, try non-BK English entries
+      if (!matched) {
+        const bookBibIds = new Set(bookEntries.map(([id]) => id));
+        const nonBookEnglish = englishEntries.filter(([id]) => !bookBibIds.has(id));
+        if (nonBookEnglish.length > 0) {
+          const checks = await Promise.all(
+            nonBookEnglish.map(async (pair) => {
+              const [, b] = pair;
+              const ok = await isMatchingBook(queryMeta.title, queryMeta.author, b.briefInfo.title, b.briefInfo.authors || []);
+              return ok ? pair : null;
+            })
+          );
+          matched = checks.find(r => r !== null) ?? undefined;
+        }
+      }
+    } else {
+      matched = bookEntries[0] || englishEntries[0];
+    }
+
+    const [bibId, bib] = matched || [];
 
     if (!bibId || !bib) return null;
 
@@ -253,5 +321,40 @@ export async function searchByTitleAuthor(
 ): Promise<LibraryAvailability | null> {
   // Strip subtitle (after colon) as it can break search
   const mainTitle = title.split(":")[0].trim();
-  return searchLibrary(`${mainTitle} ${author}`);
+  return searchLibrary(`${mainTitle} ${author}`, { title: mainTitle, author });
+}
+
+export async function getEditionById(bibId: string): Promise<Edition | null> {
+  try {
+    const [bibData, details] = await Promise.all([
+      fetchJson<BiblioSearchResponse>(`${API_BASE}/bibs/${bibId}?locale=en-US`),
+      getEditionDetails(bibId),
+    ]);
+
+    const bib = bibData.entities?.bibs?.[bibId];
+    if (!bib) return null;
+
+    const brief = bib.briefInfo;
+    const avail = bib.availability;
+    const translator = brief.isbns?.[0] ? await getTranslatorFromISBN(brief.isbns[0]) : undefined;
+
+    return {
+      bibId,
+      title: brief.title,
+      subtitle: brief.subtitle || undefined,
+      author: brief.authors?.[0] || "",
+      format: brief.format,
+      year: brief.publicationDate,
+      series: brief.series?.[0]?.name,
+      translator,
+      status: (avail.availableCopies > 0 ? "AVAILABLE" : "UNAVAILABLE") as Edition["status"],
+      availableCopies: avail.availableCopies,
+      totalCopies: avail.totalCopies,
+      heldCopies: details.heldCopies,
+      branches: details.branches,
+    };
+  } catch (error) {
+    console.error(`Error fetching edition ${bibId}:`, error);
+    return null;
+  }
 }

@@ -3,12 +3,14 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import "dotenv/config";
 import { getAllBooks, getStats, getAllGenres, updateLibraryData, addBook, deleteBook, togglePin, updateNotes, updateNumRatings, getRecommendations, addRecommendation, deleteRecommendation, getFinishedBooks, addFinishedBook, updateFinishedBook, deleteFinishedBook, getUserByUsername, getUserById, createUser, db } from "./db.js";
-import { searchLibrary, searchEditions, searchByISBN, searchByTitleAuthor } from "./library.js";
+import { searchLibrary, searchEditions, searchByISBN, searchByTitleAuthor, getEditionById } from "./library.js";
 import { getHolds, placeHold, cancelHold, discoverAccountId, type LibraryCredentials } from "./holds.js";
 import { fetchNumRatings } from "./goodreads.js";
 import { authMiddleware, hashPassword, verifyPassword, createSession, deleteSession, getSessionUser, parseCookies, getSessionCookie, getClearSessionCookie } from "./auth.js";
 import { plankRouter } from "./plank/routes.js";
 import { plankDb } from "./plank/db.js";
+import { calendarRouter } from "./calendar/routes.js";
+import { calendarDb } from "./calendar/db.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -19,17 +21,23 @@ const isProduction = process.env.NODE_ENV === "production";
 
 app.use(express.json());
 
-// Hostname-based routing for plank app
+// Hostname-based routing for sub-apps
 app.use((req, res, next) => {
   const host = req.hostname;
   if (host.startsWith("plank")) {
     return plankRouter(req, res, next);
+  }
+  if (host.startsWith("calendar")) {
+    return calendarRouter(req, res, next);
   }
   next();
 });
 
 // Mount plank routes at /plank
 app.use("/plank", plankRouter);
+
+// Mount calendar routes at /calendar
+app.use("/calendar", calendarRouter);
 
 // Serve plank app at /plank
 if (isProduction) {
@@ -40,6 +48,18 @@ app.get("/plank", (_req, res) => {
     res.sendFile(join(__dirname, "plank-client", "plank.html"));
   } else {
     res.redirect("http://localhost:5556/plank.html");
+  }
+});
+
+// Serve calendar app at /calendar
+if (isProduction) {
+  app.use("/calendar", express.static(join(__dirname, "calendar-client"), { index: false }));
+}
+app.get("/calendar", (_req, res) => {
+  if (isProduction) {
+    res.sendFile(join(__dirname, "calendar-client", "calendar.html"));
+  } else {
+    res.redirect("http://localhost:5557/calendar/calendar.html");
   }
 });
 
@@ -258,6 +278,21 @@ app.post("/api/hold/:bibId", authMiddleware, async (req, res) => {
   }
 });
 
+app.get("/api/edition/:bibId", async (req, res) => {
+  const { bibId } = req.params;
+  try {
+    const edition = await getEditionById(bibId);
+    if (!edition) {
+      res.status(404).json({ error: "Edition not found" });
+      return;
+    }
+    res.json({ edition });
+  } catch (error) {
+    console.error("Error fetching edition:", error);
+    res.status(500).json({ error: "Failed to fetch edition" });
+  }
+});
+
 app.get("/api/editions", async (req, res) => {
   const { q } = req.query;
   if (!q || typeof q !== "string") {
@@ -455,6 +490,7 @@ app.post("/api/refresh/:bookId", authMiddleware, async (req, res) => {
 if (isProduction) {
   const clientDist = join(__dirname, "client");
   const plankDist = join(__dirname, "plank-client");
+  const calendarDist = join(__dirname, "calendar-client");
 
   // Route static files and HTML based on hostname
   app.use((req, res, next) => {
@@ -464,6 +500,12 @@ if (isProduction) {
         return res.sendFile(join(plankDist, "plank.html"));
       }
       return express.static(plankDist)(req, res, next);
+    }
+    if (host.startsWith("calendar")) {
+      if (req.path === "/" || !req.path.includes(".")) {
+        return res.sendFile(join(calendarDist, "calendar.html"));
+      }
+      return express.static(calendarDist)(req, res, next);
     }
     next();
   });
@@ -492,6 +534,7 @@ function shutdown() {
   server.close(() => {
     db.close();
     plankDb.close();
+    calendarDb.close();
     process.exit(0);
   });
 }
