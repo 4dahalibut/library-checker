@@ -3,7 +3,7 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import "dotenv/config";
 import { getAllBooks, getStats, getAllGenres, updateLibraryData, addBook, deleteBook, togglePin, updateNotes, updateNumRatings, getRecommendations, addRecommendation, deleteRecommendation, getFinishedBooks, addFinishedBook, updateFinishedBook, deleteFinishedBook, getUserByUsername, getUserById, createUser, db } from "./db.js";
-import { searchLibrary, searchEditions, searchByISBN, searchByTitleAuthor, getEditionById } from "./library.js";
+import { searchEditions, getEditionAvailability } from "./library.js";
 import { getHolds, placeHold, cancelHold, discoverAccountId, type LibraryCredentials } from "./holds.js";
 import { fetchNumRatings } from "./goodreads.js";
 import { authMiddleware, hashPassword, verifyPassword, createSession, deleteSession, getSessionUser, parseCookies, getSessionCookie, getClearSessionCookie } from "./auth.js";
@@ -278,21 +278,6 @@ app.post("/api/hold/:bibId", authMiddleware, async (req, res) => {
   }
 });
 
-app.get("/api/edition/:bibId", async (req, res) => {
-  const { bibId } = req.params;
-  try {
-    const edition = await getEditionById(bibId);
-    if (!edition) {
-      res.status(404).json({ error: "Edition not found" });
-      return;
-    }
-    res.json({ edition });
-  } catch (error) {
-    console.error("Error fetching edition:", error);
-    res.status(500).json({ error: "Failed to fetch edition" });
-  }
-});
-
 app.get("/api/editions", async (req, res) => {
   const { q } = req.query;
   if (!q || typeof q !== "string") {
@@ -380,34 +365,6 @@ app.post("/api/add-book", authMiddleware, async (req, res) => {
 
   addBook({ userId, bookId, title, author, isbn13: bookIsbn13, isbn: bookIsbn, publishYear });
 
-  // Check library availability
-  const queries = [bookIsbn13, bookIsbn, `${title} ${author}`, title].filter(Boolean) as string[];
-  let libraryResult = null;
-  for (const query of queries) {
-    console.log(`Searching library for "${title}" with query: ${query}`);
-    libraryResult = await searchLibrary(query);
-    if (libraryResult) {
-      console.log(`Found with query: ${query}`);
-      break;
-    }
-  }
-
-  if (libraryResult) {
-    updateLibraryData(
-      userId,
-      bookId,
-      libraryResult.status,
-      libraryResult.availableCopies,
-      libraryResult.totalCopies,
-      libraryResult.heldCopies,
-      libraryResult.format,
-      libraryResult.catalogUrl,
-      libraryResult.squirrelHillAvailable
-    );
-  } else {
-    updateLibraryData(userId, bookId, "NOT_FOUND", null, null, null, null, null, false);
-  }
-
   res.json({ success: true, bookId, title, author });
 });
 
@@ -430,6 +387,12 @@ app.post("/api/notes/:bookId", authMiddleware, (req, res) => {
   res.json({ success: true });
 });
 
+function bibIdFromCatalogUrl(catalogUrl: string | null | undefined): string | null {
+  if (!catalogUrl) return null;
+  const last = catalogUrl.split("/").pop();
+  return last || null;
+}
+
 app.post("/api/refresh/:bookId", authMiddleware, async (req, res) => {
   const { bookId } = req.params;
   const userId = req.user!.userId;
@@ -440,49 +403,93 @@ app.post("/api/refresh/:bookId", authMiddleware, async (req, res) => {
     return;
   }
 
-  const [libraryResult, numRatings] = await Promise.all([
-    (async () => {
-      let result = await searchByISBN(book.isbn13 || book.isbn);
-      if (!result) {
-        result = await searchByTitleAuthor(book.title, book.author);
-      }
-      return result;
-    })(),
+  const bibId = bibIdFromCatalogUrl(book.catalogUrl);
+  const [libraryOutcome, numRatings] = await Promise.all([
+    bibId
+      ? getEditionAvailability(bibId).then(
+          a => ({ ok: true as const, avail: a }),
+          (e: unknown) => {
+            console.error(`Refresh availability failed for ${bibId}:`, e);
+            return { ok: false as const };
+          }
+        )
+      : Promise.resolve({ ok: true as const, avail: null }),
     fetchNumRatings(bookId),
   ]);
-
-  console.log(`Refresh "${book.title}":`, libraryResult ? `found (${libraryResult.status})` : "not found", `ratings: ${numRatings}`);
 
   if (numRatings > 0) {
     updateNumRatings(userId, bookId, numRatings);
   }
 
-  if (libraryResult) {
+  if (!libraryOutcome.ok) {
+    res.json({ libraryError: "Could not fetch availability for the linked edition. The link may be broken.", numRatings });
+    return;
+  }
+
+  const avail = libraryOutcome.avail;
+  if (avail) {
+    const status = avail.availableCopies > 0 ? "AVAILABLE" : "UNAVAILABLE";
     updateLibraryData(
-      userId,
-      bookId,
-      libraryResult.status,
-      libraryResult.availableCopies,
-      libraryResult.totalCopies,
-      libraryResult.heldCopies,
-      libraryResult.format,
-      libraryResult.catalogUrl,
-      libraryResult.squirrelHillAvailable
+      userId, bookId, status,
+      avail.availableCopies, avail.totalCopies, avail.heldCopies,
+      book.catalogUrl, avail.squirrelHillAvailable,
     );
     res.json({
-      libraryStatus: libraryResult.status,
-      availableCopies: libraryResult.availableCopies,
-      totalCopies: libraryResult.totalCopies,
-      heldCopies: libraryResult.heldCopies,
-      libraryFormat: libraryResult.format,
-      catalogUrl: libraryResult.catalogUrl,
-      squirrelHillAvailable: libraryResult.squirrelHillAvailable,
+      libraryStatus: status,
+      availableCopies: avail.availableCopies,
+      totalCopies: avail.totalCopies,
+      heldCopies: avail.heldCopies,
+      catalogUrl: book.catalogUrl,
+      squirrelHillAvailable: avail.squirrelHillAvailable,
       numRatings,
     });
   } else {
-    updateLibraryData(userId, bookId, "NOT_FOUND", null, null, null, null, null, false);
-    res.json({ libraryStatus: "NOT_FOUND", squirrelHillAvailable: false, numRatings });
+    res.json({ numRatings });
   }
+});
+
+app.post("/api/link-library/:bookId", authMiddleware, async (req, res) => {
+  const { bookId } = req.params;
+  const { bibId } = req.body as { bibId?: string };
+  if (!bibId) {
+    res.status(400).json({ error: "bibId required" });
+    return;
+  }
+  const userId = req.user!.userId;
+  const books = getAllBooks(userId);
+  const book = books.find(b => b.bookId === bookId);
+  if (!book) {
+    res.status(404).json({ error: "Book not found" });
+    return;
+  }
+  try {
+    const avail = await getEditionAvailability(bibId);
+    const status = avail.availableCopies > 0 ? "AVAILABLE" : "UNAVAILABLE";
+    const catalogUrl = `https://acl.bibliocommons.com/v2/record/${bibId}`;
+    updateLibraryData(
+      userId, bookId, status,
+      avail.availableCopies, avail.totalCopies, avail.heldCopies,
+      catalogUrl, avail.squirrelHillAvailable,
+    );
+    res.json({
+      libraryStatus: status,
+      availableCopies: avail.availableCopies,
+      totalCopies: avail.totalCopies,
+      heldCopies: avail.heldCopies,
+      catalogUrl,
+      squirrelHillAvailable: avail.squirrelHillAvailable,
+    });
+  } catch (e) {
+    console.error("Error linking book:", e);
+    res.status(502).json({ error: "Could not fetch availability for that edition." });
+  }
+});
+
+app.post("/api/unlink-library/:bookId", authMiddleware, (req, res) => {
+  const { bookId } = req.params;
+  const userId = req.user!.userId;
+  updateLibraryData(userId, bookId, null, null, null, null, null, false);
+  res.json({ success: true });
 });
 
 // --- HTML serving ---

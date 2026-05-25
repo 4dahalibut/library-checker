@@ -28,7 +28,6 @@ interface Book {
   availableCopies: number | null;
   totalCopies: number | null;
   heldCopies: number | null;
-  libraryFormat: string | null;
   catalogUrl: string | null;
   libraryCheckedAt: string | null;
   squirrelHillAvailable: boolean;
@@ -42,8 +41,7 @@ interface Stats {
   total: number;
   available: number;
   unavailable: number;
-  notFound: number;
-  unchecked: number;
+  unlinked: number;
 }
 
 interface Genre {
@@ -61,7 +59,7 @@ interface Recommendation {
 
 let allBooks: Book[] = [];
 let recommendations: Recommendation[] = [];
-let stats: Stats = { total: 0, available: 0, unavailable: 0, notFound: 0, unchecked: 0 };
+let stats: Stats = { total: 0, available: 0, unavailable: 0, unlinked: 0 };
 let genres: Genre[] = [];
 let currentFilter = "all";
 let currentSort = "date";
@@ -302,8 +300,7 @@ function render() {
       <tr>
         <td><font color="green" size="+2"><b>${stats.available || 0}</b></font><br><font size="2">Available</font></td>
         <td><font color="#cc9900" size="+2"><b>${stats.unavailable || 0}</b></font><br><font size="2">Checked Out</font></td>
-        <td><font color="red" size="+2"><b>${stats.notFound || 0}</b></font><br><font size="2">Not Found</font></td>
-        <td><font color="gray" size="+2"><b>${stats.unchecked || 0}</b></font><br><font size="2">Unchecked</font></td>
+        <td><font color="gray" size="+2"><b>${stats.unlinked || 0}</b></font><br><font size="2">Unlinked</font></td>
         <td><font size="+2"><b>${stats.total || 0}</b></font><br><font size="2">Total</font></td>
       </tr>
     </table>
@@ -313,7 +310,7 @@ function render() {
 
     <div class="controls">
     <b>Filter:</b>
-    ${["all", "physical", "pinned", "available", "squirrel-hill", "unavailable", "not-found", "unchecked"]
+    ${["all", "pinned", "available", "squirrel-hill", "unavailable", "unlinked"]
       .map((f) => (currentFilter === f ? `[<b>${f}</b>]` : `<a href="#" onclick="setFilter('${f}'); return false;">${f}</a>`))
       .join(" | ")}
     <br>
@@ -400,28 +397,18 @@ function render() {
   `;
 }
 
-function isNotPhysicalBook(book: Book): boolean {
-  if (!book.libraryFormat) return false;
-  const format = book.libraryFormat.toLowerCase();
-  return format.includes("ebook") || format.includes("e-book") || format.includes("audiobook") || format === "book_cd";
-}
-
 function filterBooks(books: Book[], filter: string): Book[] {
   switch (filter) {
-    case "physical":
-      return books.filter((b) => b.libraryStatus && b.libraryStatus !== "NOT_FOUND" && !isNotPhysicalBook(b));
     case "pinned":
       return books.filter((b) => b.pinned);
     case "available":
-      return books.filter((b) => b.libraryStatus === "AVAILABLE" && !isNotPhysicalBook(b));
+      return books.filter((b) => b.libraryStatus === "AVAILABLE");
     case "squirrel-hill":
-      return books.filter((b) => b.squirrelHillAvailable && !isNotPhysicalBook(b));
+      return books.filter((b) => b.squirrelHillAvailable);
     case "unavailable":
-      return books.filter((b) => b.libraryStatus === "UNAVAILABLE" && !isNotPhysicalBook(b));
-    case "not-found":
-      return books.filter((b) => b.libraryStatus === "NOT_FOUND" || isNotPhysicalBook(b));
-    case "unchecked":
-      return books.filter((b) => !b.libraryStatus);
+      return books.filter((b) => b.libraryStatus === "UNAVAILABLE");
+    case "unlinked":
+      return books.filter((b) => !b.catalogUrl);
     default:
       return books;
   }
@@ -571,6 +558,9 @@ async function refreshBook(bookId: string, event: Event) {
       return;
     }
     const updated = await res.json();
+    if (updated.libraryError) {
+      alert(updated.libraryError);
+    }
     const idx = allBooks.findIndex((b) => b.bookId === bookId);
     if (idx >= 0) allBooks[idx] = { ...allBooks[idx], ...updated };
     render();
@@ -581,55 +571,141 @@ async function refreshBook(bookId: string, event: Event) {
   }
 }
 
-async function holdBook(title: string, author: string, bibId: string, event: Event) {
-  const btn = event.target as HTMLInputElement;
+async function holdBook(bookId: string, event: Event) {
+  const book = allBooks.find(b => b.bookId === bookId);
+  if (!book || !book.catalogUrl) return;
+  const bibId = book.catalogUrl.split("/").pop();
+  if (!bibId) return;
 
+  const btn = event.target as HTMLInputElement;
   btn.disabled = true;
   btn.value = "...";
-
   try {
-    let editions: Edition[];
-
-    if (bibId) {
-      const res = await fetch(`/api/edition/${encodeURIComponent(bibId)}`);
-      const data = await res.json();
-      if (data.edition) {
-        editions = [data.edition];
-      } else {
-        // Fall back to search if single-bib fetch fails
-        const searchRes = await fetch(`/api/editions?q=${encodeURIComponent(`${title} ${author}`)}`);
-        const searchData = await searchRes.json();
-        editions = searchData.editions || [];
-      }
-    } else {
-      const res = await fetch(`/api/editions?q=${encodeURIComponent(`${title} ${author}`)}`);
-      const data = await res.json();
-      editions = data.editions || [];
-    }
-
-    if (editions.length === 0) {
-      alert("No editions found in library");
-      btn.value = "Hold";
+    const res = await fetch("/api/hold/" + bibId, { method: "POST" });
+    if (res.status === 401) {
       btn.disabled = false;
+      btn.value = "Hold";
       return;
     }
-
-    showEditionsModal(title, editions, btn);
-  } catch (e) {
-    console.error(e);
-    alert("Error searching for editions");
-    btn.value = "Hold";
+    const result = await res.json();
+    if (result.success) {
+      btn.value = "OK!";
+    } else {
+      alert(result.message);
+      btn.disabled = false;
+      btn.value = "Hold";
+    }
+  } catch (err) {
+    console.error(err);
+    alert("Error placing hold");
     btn.disabled = false;
+    btn.value = "Hold";
   }
 }
 
-function showEditionsModal(bookTitle: string, editions: Edition[], holdBtn: HTMLInputElement) {
+async function linkBook(bookId: string, event: Event) {
+  const book = allBooks.find(b => b.bookId === bookId);
+  if (!book) return;
+  const btn = event.target as HTMLInputElement;
+  btn.disabled = true;
+  const originalLabel = btn.value;
+  btn.value = "...";
+  openLinkModal(book.title, bookId, `${book.title} ${book.author || ""}`.trim(), () => {
+    btn.disabled = false;
+    btn.value = originalLabel;
+  });
+}
+
+async function unlinkBook(bookId: string) {
+  if (!confirm("Unlink this book from the library catalog?")) return;
+  try {
+    await fetch("/api/unlink-library/" + bookId, { method: "POST" });
+    const idx = allBooks.findIndex(b => b.bookId === bookId);
+    if (idx >= 0) {
+      allBooks[idx] = {
+        ...allBooks[idx],
+        libraryStatus: null,
+        availableCopies: null,
+        totalCopies: null,
+        heldCopies: null,
+        catalogUrl: null,
+        squirrelHillAvailable: false,
+      };
+      render();
+    }
+  } catch (e) {
+    console.error(e);
+    alert("Failed to unlink");
+  }
+}
+
+function openLinkModal(bookTitle: string, bookId: string, initialQuery: string, onClose: () => void) {
   const existing = document.getElementById("editions-modal");
   if (existing) existing.remove();
 
   const modal = document.createElement("div");
   modal.id = "editions-modal";
   modal.className = "modal-overlay";
+
+  modal.innerHTML = `
+    <div class="modal-content">
+      <h3 style="margin-top: 0;">Link to library: ${escapeHtml(bookTitle)}</h3>
+      <form id="edition-search-form" style="margin-bottom: 8px;">
+        <input type="text" id="edition-search-input" value="${escapeHtml(initialQuery)}" style="width: 70%;">
+        <input type="submit" value="Search">
+      </form>
+      <div id="editions-results"><p><i>Searching…</i></p></div>
+      <div class="modal-buttons" style="margin-top: 8px;">
+        <input type="button" value="Cancel" onclick="closeEditionsModal()">
+      </div>
+    </div>
+  `;
+
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) closeEditionsModal();
+  });
+
+  (modal as HTMLElement & { _onClose?: () => void })._onClose = onClose;
+
+  document.body.appendChild(modal);
+
+  const searchForm = modal.querySelector("#edition-search-form") as HTMLFormElement;
+  const searchInput = modal.querySelector("#edition-search-input") as HTMLInputElement;
+  searchForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    runEditionSearch(searchInput.value, bookId, onClose);
+  });
+
+  runEditionSearch(initialQuery, bookId, onClose);
+}
+
+async function runEditionSearch(query: string, bookId: string, onClose: () => void) {
+  const resultsDiv = document.getElementById("editions-results");
+  if (!resultsDiv) return;
+  resultsDiv.innerHTML = `<p><i>Searching…</i></p>`;
+
+  let editions: Edition[];
+  try {
+    const res = await fetch(`/api/editions?q=${encodeURIComponent(query)}`);
+    const data = await res.json();
+    editions = data.editions || [];
+  } catch (e) {
+    console.error(e);
+    resultsDiv.innerHTML = `<p><font color="red">Search failed. Try again.</font></p>`;
+    return;
+  }
+
+  renderEditionResults(editions, bookId, onClose);
+}
+
+function renderEditionResults(editions: Edition[], bookId: string, onClose: () => void) {
+  const resultsDiv = document.getElementById("editions-results");
+  if (!resultsDiv) return;
+
+  if (editions.length === 0) {
+    resultsDiv.innerHTML = `<p>No editions found. Try editing the search above.</p>`;
+    return;
+  }
 
   const formatBranches = (branches: Edition["branches"]) => {
     return branches.map(b => {
@@ -679,74 +755,68 @@ function showEditionsModal(bookTitle: string, editions: Edition[], holdBtn: HTML
     `;
   }).join("");
 
-  modal.innerHTML = `
-    <div class="modal-content">
-      <h3 style="margin-top: 0;">${escapeHtml(bookTitle)} - ${editions.length} edition${editions.length === 1 ? "" : "s"} found</h3>
-      <form id="edition-form">
-        <div class="table-scroll">
-        <table class="data-table">
-          <tr bgcolor="#cccccc">
-            <th width="30"></th>
-            <th align="left">Edition</th>
-            <th align="center">Status</th>
-            <th align="left">Branches</th>
-          </tr>
-          ${editionRows}
-        </table>
-        </div>
-        <div class="modal-buttons">
-          <input type="submit" value="Place Hold">
-          <input type="button" value="Cancel" onclick="closeEditionsModal()">
-        </div>
-      </form>
-    </div>
+  resultsDiv.innerHTML = `
+    <form id="edition-form">
+      <div class="table-scroll">
+      <table class="data-table">
+        <tr bgcolor="#cccccc">
+          <th width="30"></th>
+          <th align="left">Edition</th>
+          <th align="center">Status</th>
+          <th align="left">Branches</th>
+        </tr>
+        ${editionRows}
+      </table>
+      </div>
+      <div class="modal-buttons" style="margin-top: 8px;">
+        <input type="submit" value="Link this edition">
+      </div>
+    </form>
   `;
 
-  modal.addEventListener("click", (e) => {
-    if (e.target === modal) closeEditionsModal();
-  });
-
-  const form = modal.querySelector("#edition-form") as HTMLFormElement;
+  const form = resultsDiv.querySelector("#edition-form") as HTMLFormElement;
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const formData = new FormData(form);
-    const bibId = formData.get("edition") as string;
+    const checked = form.querySelector('input[name="edition"]:checked') as HTMLInputElement | null;
+    if (!checked) return;
+    const bibId = checked.value;
 
     const submitBtn = form.querySelector('input[type="submit"]') as HTMLInputElement;
     submitBtn.disabled = true;
-    submitBtn.value = "Placing hold...";
+    submitBtn.value = "Linking…";
 
     try {
-      const res = await fetch("/api/hold/" + bibId, { method: "POST" });
-      const result = await res.json();
-      if (result.success) {
-        holdBtn.value = "OK!";
-        closeEditionsModal();
-      } else {
-        alert(result.message);
+      const res = await fetch("/api/link-library/" + bookId, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bibId }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Link failed" }));
+        alert(err.error || "Link failed");
         submitBtn.disabled = false;
-        submitBtn.value = "Place Hold";
+        submitBtn.value = "Link this edition";
+        return;
       }
+      const updated = await res.json();
+      const idx = allBooks.findIndex(b => b.bookId === bookId);
+      if (idx >= 0) allBooks[idx] = { ...allBooks[idx], ...updated };
+      closeEditionsModal();
+      render();
     } catch (err) {
       console.error(err);
-      alert("Error placing hold");
+      alert("Error linking edition");
       submitBtn.disabled = false;
-      submitBtn.value = "Place Hold";
+      submitBtn.value = "Link this edition";
     }
   });
-
-  document.body.appendChild(modal);
 }
 
 function closeEditionsModal() {
-  const modal = document.getElementById("editions-modal");
+  const modal = document.getElementById("editions-modal") as (HTMLElement & { _onClose?: () => void }) | null;
   if (modal) {
+    modal._onClose?.();
     modal.remove();
-    const holdBtns = document.querySelectorAll('input[value="..."]') as NodeListOf<HTMLInputElement>;
-    holdBtns.forEach(btn => {
-      btn.value = "Hold";
-      btn.disabled = false;
-    });
   }
 }
 
@@ -766,14 +836,12 @@ async function saveNotes(bookId: string, notes: string) {
 
 function renderBook(book: Book): string {
   let statusColor = "gray";
-  let statusText = "Unchecked";
+  let statusText = "Not linked";
   let copiesText = "";
   let holdsText = "";
+  const linked = !!book.catalogUrl;
 
-  if (isNotPhysicalBook(book)) {
-    statusColor = "red";
-    statusText = "Digital Only";
-  } else if (book.libraryStatus === "AVAILABLE") {
+  if (book.libraryStatus === "AVAILABLE") {
     statusColor = "green";
     statusText = "AVAILABLE";
     copiesText = `${book.availableCopies}/${book.totalCopies} copies`;
@@ -781,9 +849,6 @@ function renderBook(book: Book): string {
     statusColor = "#cc9900";
     statusText = "Checked Out";
     copiesText = `0/${book.totalCopies} copies`;
-  } else if (book.libraryStatus === "NOT_FOUND") {
-    statusColor = "red";
-    statusText = "Not Found";
   }
 
   if (book.heldCopies && book.heldCopies > 0) {
@@ -795,7 +860,6 @@ function renderBook(book: Book): string {
   const numRatingsInfo = book.numRatings ? `${book.numRatings.toLocaleString()} ratings` : "";
 
   const isbn = book.isbn13 || book.isbn;
-  const bibId = book.catalogUrl ? book.catalogUrl.split("/").pop() : null;
 
   return `
     <tr${book.pinned ? ' class="row-pinned"' : ""}>
@@ -815,8 +879,7 @@ function renderBook(book: Book): string {
         <font size="1">
           ${dateAdded ? `Added: ${dateAdded}<br>` : ""}
           ${ratingInfo ? `${ratingInfo}<br>` : ""}
-          ${numRatingsInfo ? `${numRatingsInfo}<br>` : ""}
-          ${book.libraryFormat ? `Format: ${book.libraryFormat}` : ""}
+          ${numRatingsInfo ? `${numRatingsInfo}` : ""}
         </font>
       </td>
       <td align="center">
@@ -829,8 +892,10 @@ function renderBook(book: Book): string {
       ${isOwnProfile ? `
       <td align="center" style="white-space:nowrap">
         <input type="button" class="action-btn" value="${book.pinned ? "Unpin" : "Pin"}" onclick="togglePinBook('${book.bookId}')">
-        <input type="button" class="action-btn" value="Refresh" onclick="refreshBook('${book.bookId}', event)">
-        ${!isNotPhysicalBook(book) && book.libraryStatus && book.libraryStatus !== "NOT_FOUND" ? `<input type="button" class="action-btn" value="Hold" onclick="holdBook('${escapeHtml(book.title.replace(/'/g, "\\\'"))}', '${escapeHtml((book.author || "").replace(/'/g, "\\\'"))}', '${bibId || ""}', event)">` : ""}
+        ${linked ? `<input type="button" class="action-btn" value="Refresh" onclick="refreshBook('${book.bookId}', event)">` : ""}
+        ${linked ? `<input type="button" class="action-btn" value="Hold" onclick="holdBook('${book.bookId}', event)">` : ""}
+        <input type="button" class="action-btn" value="${linked ? "Re-link" : "Link"}" onclick="linkBook('${book.bookId}', event)">
+        ${linked ? `<input type="button" class="action-btn" value="Unlink" onclick="unlinkBook('${book.bookId}')">` : ""}
         <input type="button" class="action-btn" value="X" onclick="deleteBookById('${book.bookId}')" title="Remove from list">
       </td>
       ` : ""}
@@ -905,7 +970,9 @@ declare global {
     deleteRecommendation: typeof deleteRecommendation;
     togglePinBook: typeof togglePinBook;
     refreshBook: typeof refreshBook;
-    holdBook: (title: string, author: string, bibId: string, event: Event) => Promise<void>;
+    holdBook: typeof holdBook;
+    linkBook: typeof linkBook;
+    unlinkBook: typeof unlinkBook;
     saveNotes: typeof saveNotes;
     closeEditionsModal: typeof closeEditionsModal;
     submitRecommendation: typeof submitRecommendation;
@@ -924,6 +991,8 @@ window.deleteRecommendation = deleteRecommendation;
 window.togglePinBook = togglePinBook;
 window.refreshBook = refreshBook;
 window.holdBook = holdBook;
+window.linkBook = linkBook;
+window.unlinkBook = unlinkBook;
 window.saveNotes = saveNotes;
 window.closeEditionsModal = closeEditionsModal;
 window.submitRecommendation = submitRecommendation;

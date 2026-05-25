@@ -9,7 +9,6 @@
     "build": "vite build && vite build --config vite.plank.config.ts && vite build --config vite.calendar.config.ts && tsc",
     "start": "NODE_ENV=production node dist/server.js",
     "import": "tsx src/import-csv.ts",
-    "refresh:library": "tsx src/refresh-library.ts",
     "refresh:ratings": "tsx src/refresh-ratings.ts",
     "refresh:genres": "tsx src/refresh-genres.ts",
     "refresh:culture": "tsx src/refresh-culture.ts",

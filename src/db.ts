@@ -221,7 +221,6 @@ export interface Book {
   availableCopies: number | null;
   totalCopies: number | null;
   heldCopies: number | null;
-  libraryFormat: string | null;
   catalogUrl: string | null;
   libraryCheckedAt: string | null;
   squirrelHillAvailable: boolean;
@@ -287,7 +286,7 @@ const BOOK_SELECT = `
   avg_rating as avgRating, num_ratings as numRatings, genres,
   library_status as libraryStatus, available_copies as availableCopies,
   total_copies as totalCopies, held_copies as heldCopies,
-  library_format as libraryFormat, catalog_url as catalogUrl,
+  catalog_url as catalogUrl,
   library_checked_at as libraryCheckedAt,
   squirrel_hill_available as squirrelHillAvailable,
   culture, pinned, publish_year as publishYear, notes
@@ -299,17 +298,15 @@ export function getAllBooks(userId: number): Book[] {
 
 export function getStats(userId: number) {
   const total = db.prepare(`SELECT COUNT(*) as count FROM books WHERE user_id = ?`).get(userId) as { count: number };
-  const available = db.prepare(`SELECT COUNT(*) as count FROM books WHERE user_id = ? AND library_status = 'AVAILABLE'`).get(userId) as { count: number };
-  const unavailable = db.prepare(`SELECT COUNT(*) as count FROM books WHERE user_id = ? AND library_status = 'UNAVAILABLE'`).get(userId) as { count: number };
-  const notFound = db.prepare(`SELECT COUNT(*) as count FROM books WHERE user_id = ? AND library_status = 'NOT_FOUND'`).get(userId) as { count: number };
-  const unchecked = db.prepare(`SELECT COUNT(*) as count FROM books WHERE user_id = ? AND library_status IS NULL`).get(userId) as { count: number };
+  const available = db.prepare(`SELECT COUNT(*) as count FROM books WHERE user_id = ? AND catalog_url IS NOT NULL AND library_status = 'AVAILABLE'`).get(userId) as { count: number };
+  const unavailable = db.prepare(`SELECT COUNT(*) as count FROM books WHERE user_id = ? AND catalog_url IS NOT NULL AND library_status = 'UNAVAILABLE'`).get(userId) as { count: number };
+  const unlinked = db.prepare(`SELECT COUNT(*) as count FROM books WHERE user_id = ? AND catalog_url IS NULL`).get(userId) as { count: number };
 
   return {
     total: total.count,
     available: available.count,
     unavailable: unavailable.count,
-    notFound: notFound.count,
-    unchecked: unchecked.count,
+    unlinked: unlinked.count,
   };
 }
 
@@ -368,7 +365,6 @@ export function updateLibraryData(
   availableCopies: number | null,
   totalCopies: number | null,
   heldCopies: number | null,
-  format: string | null,
   catalogUrl: string | null,
   squirrelHillAvailable: boolean
 ): void {
@@ -378,12 +374,11 @@ export function updateLibraryData(
       available_copies = ?,
       total_copies = ?,
       held_copies = ?,
-      library_format = ?,
       catalog_url = ?,
       library_checked_at = ?,
       squirrel_hill_available = ?
     WHERE user_id = ? AND book_id = ?
-  `).run(status, availableCopies, totalCopies, heldCopies, format, catalogUrl, new Date().toISOString(), squirrelHillAvailable ? 1 : 0, userId, bookId);
+  `).run(status, availableCopies, totalCopies, heldCopies, catalogUrl, new Date().toISOString(), squirrelHillAvailable ? 1 : 0, userId, bookId);
 }
 
 export function updateNumRatings(userId: number, bookId: string, numRatings: number): void {
@@ -399,18 +394,6 @@ export function updateCulture(userId: number, bookId: string, culture: string): 
 }
 
 // --- Cross-user queries for refresh scripts ---
-
-export function getAllBooksNeedingLibraryCheck(limit: number, oldestFirst = false): BookWithUser[] {
-  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const order = oldestFirst ? 'ASC' : 'DESC';
-  return db.prepare(`
-    SELECT user_id as userId, ${BOOK_SELECT}
-    FROM books
-    WHERE library_checked_at IS NULL OR library_checked_at < ?
-    ORDER BY date_added ${order}
-    LIMIT ?
-  `).all(oneDayAgo, limit) as BookWithUser[];
-}
 
 export function getAllBooksNeedingRatings(limit: number): BookWithUser[] {
   return db.prepare(`
