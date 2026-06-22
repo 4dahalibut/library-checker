@@ -2,8 +2,8 @@ import express from "express";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import "dotenv/config";
-import { getAllBooks, getStats, getAllGenres, updateLibraryData, addBook, deleteBook, togglePin, updateNotes, updateNumRatings, getRecommendations, addRecommendation, deleteRecommendation, getFinishedBooks, addFinishedBook, updateFinishedBook, deleteFinishedBook, getUserByUsername, getUserById, createUser, db } from "./db.js";
-import { searchEditions, getEditionAvailability } from "./library.js";
+import { getAllBooks, getBook, getStats, getAllGenres, updateLibraryData, deleteBook, togglePin, updateNotes, updateNumRatings, getRecommendations, addRecommendation, deleteRecommendation, getFinishedBooks, addFinishedBook, updateFinishedBook, deleteFinishedBook, getUserByUsername, getUserById, createUser, upsertCatalogBook, db, type Book } from "./db.js";
+import { searchEditions, getEditionAvailability, getEditionById, type Edition } from "./library.js";
 import { getHolds, placeHold, cancelHold, discoverAccountId, type LibraryCredentials } from "./holds.js";
 import { fetchNumRatings } from "./goodreads.js";
 import { authMiddleware, hashPassword, verifyPassword, createSession, deleteSession, getSessionUser, parseCookies, getSessionCookie, getClearSessionCookie } from "./auth.js";
@@ -68,6 +68,92 @@ function resolveUser(username: string): { userId: number; username: string } | n
   const user = getUserByUsername(username);
   if (!user) return null;
   return { userId: user.id, username: user.username };
+}
+
+function getLibraryCredentials(userId: number): LibraryCredentials | null {
+  const user = getUserById(userId);
+  if (!user?.libraryBarcode || !user?.libraryPin || !user?.libraryAccountId) {
+    return null;
+  }
+  return { barcode: user.libraryBarcode, pin: user.libraryPin, accountId: user.libraryAccountId };
+}
+
+function catalogUrlForBibId(bibId: string): string {
+  return `https://acl.bibliocommons.com/v2/record/${bibId}`;
+}
+
+function bibIdFromCatalogUrl(catalogUrl: string | null | undefined): string | null {
+  if (!catalogUrl) return null;
+  const marker = "/record/";
+  const markerIndex = catalogUrl.indexOf(marker);
+  if (markerIndex >= 0) return catalogUrl.slice(markerIndex + marker.length) || null;
+  return catalogUrl.split("/").pop() || null;
+}
+
+function preferredBibIdForBook(book: Book): string | null {
+  return book.preferredBibId || bibIdFromCatalogUrl(book.catalogUrl);
+}
+
+function searchQueryForBook(book: Book): string {
+  const storedIntent = book.intentQuery?.trim();
+  if (storedIntent) return storedIntent;
+  return [book.intentTitle || book.title, book.intentAuthor || book.author].filter(Boolean).join(" ").trim();
+}
+
+function publishYearFromEdition(edition: Edition): number | undefined {
+  const match = edition.year?.match(/\d{4}/);
+  return match ? parseInt(match[0], 10) : undefined;
+}
+
+function statusFromEdition(edition: Edition): "AVAILABLE" | "UNAVAILABLE" {
+  return edition.availableCopies > 0 ? "AVAILABLE" : "UNAVAILABLE";
+}
+
+function upsertBookFromEdition(userId: number, edition: Edition, intentQuery: string): Book {
+  return upsertCatalogBook({
+    userId,
+    bookId: `catalog-${edition.bibId}`,
+    title: edition.title,
+    author: edition.author,
+    isbn: edition.isbn,
+    isbn13: edition.isbn13,
+    publishYear: publishYearFromEdition(edition),
+    preferredBibId: edition.bibId,
+    intentTitle: edition.title,
+    intentAuthor: edition.author,
+    intentQuery,
+    libraryStatus: statusFromEdition(edition),
+    availableCopies: edition.availableCopies,
+    totalCopies: edition.totalCopies,
+    heldCopies: edition.heldCopies,
+    catalogUrl: catalogUrlForBibId(edition.bibId),
+    squirrelHillAvailable: edition.squirrelHillAvailable,
+  });
+}
+
+async function updatePreferredEdition(userId: number, bookId: string, bibId: string): Promise<Partial<Book>> {
+  const edition = await getEditionById(bibId);
+  const status = statusFromEdition(edition);
+  const catalogUrl = catalogUrlForBibId(bibId);
+  updateLibraryData(
+    userId,
+    bookId,
+    status,
+    edition.availableCopies,
+    edition.totalCopies,
+    edition.heldCopies,
+    catalogUrl,
+    edition.squirrelHillAvailable,
+  );
+  return {
+    libraryStatus: status,
+    availableCopies: edition.availableCopies,
+    totalCopies: edition.totalCopies,
+    heldCopies: edition.heldCopies,
+    catalogUrl,
+    preferredBibId: bibId,
+    squirrelHillAvailable: edition.squirrelHillAvailable,
+  };
 }
 
 // --- Auth routes ---
@@ -260,12 +346,11 @@ app.delete("/api/finished/:id", authMiddleware, (req, res) => {
 app.post("/api/hold/:bibId", authMiddleware, async (req, res) => {
   const { bibId } = req.params;
   try {
-    const user = getUserById(req.user!.userId);
-    if (!user?.libraryBarcode || !user?.libraryPin || !user?.libraryAccountId) {
+    const creds = getLibraryCredentials(req.user!.userId);
+    if (!creds) {
       res.status(400).json({ success: false, message: "No library credentials configured" });
       return;
     }
-    const creds: LibraryCredentials = { barcode: user.libraryBarcode, pin: user.libraryPin, accountId: user.libraryAccountId };
     const result = await placeHold(bibId, creds);
     if (!result.success) {
       console.error("Hold failed:", result.message);
@@ -279,16 +364,32 @@ app.post("/api/hold/:bibId", authMiddleware, async (req, res) => {
 });
 
 app.get("/api/editions", async (req, res) => {
-  const { q } = req.query;
+  const { q, preferredBibId } = req.query;
   if (!q || typeof q !== "string") {
     res.status(400).json({ error: "Query parameter 'q' required" });
     return;
   }
   try {
-    const editions = await searchEditions(q);
+    const editions = await searchEditions(q, typeof preferredBibId === "string" ? preferredBibId : undefined);
     res.json({ editions });
   } catch (error) {
     console.error("Error searching editions:", error);
+    res.status(500).json({ error: "Failed to search editions" });
+  }
+});
+
+app.get("/api/book/:bookId/editions", authMiddleware, async (req, res) => {
+  const book = getBook(req.user!.userId, req.params.bookId);
+  if (!book) {
+    res.status(404).json({ error: "Book not found" });
+    return;
+  }
+
+  try {
+    const editions = await searchEditions(searchQueryForBook(book), preferredBibIdForBook(book) || undefined);
+    res.json({ editions });
+  } catch (error) {
+    console.error("Error searching editions for book:", error);
     res.status(500).json({ error: "Failed to search editions" });
   }
 });
@@ -312,60 +413,38 @@ app.delete("/api/hold/:holdId", authMiddleware, async (req, res) => {
 });
 
 app.post("/api/add-book", authMiddleware, async (req, res) => {
-  const { isbn, keyword } = req.body;
-  if (!isbn && !keyword) {
-    res.status(400).json({ error: "ISBN or keyword required" });
+  const { bibId, intentQuery, placeHold: shouldPlaceHold } = req.body as {
+    bibId?: string;
+    intentQuery?: string;
+    placeHold?: boolean;
+  };
+  if (!bibId) {
+    res.status(400).json({ error: "bibId required" });
     return;
   }
 
   const userId = req.user!.userId;
 
-  let title: string;
-  let author: string;
-  let bookIsbn: string | undefined;
-  let bookIsbn13: string | undefined;
-  let publishYear: number | undefined;
+  try {
+    const edition = await getEditionById(bibId);
+    const book = upsertBookFromEdition(userId, edition, intentQuery || `${edition.title} ${edition.author}`.trim());
 
-  if (isbn) {
-    const openLibUrl = `https://openlibrary.org/api/books?bibkeys=ISBN:${isbn}&format=json&jscmd=data`;
-    const openLibRes = await fetch(openLibUrl);
-    const openLibData = await openLibRes.json();
-    const bookData = openLibData[`ISBN:${isbn}`];
-
-    if (!bookData) {
-      res.status(404).json({ error: "Book not found" });
-      return;
+    let holdResult: { success: boolean; message: string } | undefined;
+    if (shouldPlaceHold) {
+      const creds = getLibraryCredentials(userId);
+      if (!creds) {
+        res.status(400).json({ error: "No library credentials configured" });
+        return;
+      }
+      holdResult = await placeHold(bibId, creds);
     }
 
-    title = bookData.title || "Unknown Title";
-    author = bookData.authors?.[0]?.name || "Unknown Author";
-    bookIsbn13 = isbn.length === 13 ? isbn : undefined;
-    bookIsbn = isbn.length === 10 ? isbn : undefined;
-    const yearMatch = bookData.publish_date?.match(/\d{4}/);
-    publishYear = yearMatch ? parseInt(yearMatch[0]) : undefined;
-  } else {
-    const searchUrl = `https://openlibrary.org/search.json?q=${encodeURIComponent(keyword)}&limit=1`;
-    const searchRes = await fetch(searchUrl);
-    const searchData = await searchRes.json();
-
-    if (!searchData.docs || searchData.docs.length === 0) {
-      res.status(404).json({ error: "Book not found" });
-      return;
-    }
-
-    const doc = searchData.docs[0];
-    title = doc.title || "Unknown Title";
-    author = doc.author_name?.[0] || "Unknown Author";
-    bookIsbn13 = doc.isbn?.find((i: string) => i.length === 13);
-    bookIsbn = doc.isbn?.find((i: string) => i.length === 10);
-    publishYear = doc.first_publish_year;
+    res.json({ success: true, book, bookId: book.bookId, title: book.title, author: book.author, hold: holdResult });
+  } catch (error) {
+    console.error("Error adding catalog book:", error);
+    const message = error instanceof Error ? error.message : "Could not add book";
+    res.status(502).json({ error: message });
   }
-
-  const bookId = `manual-${isbn || keyword.replace(/\s+/g, "-")}-${Date.now()}`;
-
-  addBook({ userId, bookId, title, author, isbn13: bookIsbn13, isbn: bookIsbn, publishYear });
-
-  res.json({ success: true, bookId, title, author });
 });
 
 app.delete("/api/book/:bookId", authMiddleware, (req, res) => {
@@ -387,23 +466,16 @@ app.post("/api/notes/:bookId", authMiddleware, (req, res) => {
   res.json({ success: true });
 });
 
-function bibIdFromCatalogUrl(catalogUrl: string | null | undefined): string | null {
-  if (!catalogUrl) return null;
-  const last = catalogUrl.split("/").pop();
-  return last || null;
-}
-
 app.post("/api/refresh/:bookId", authMiddleware, async (req, res) => {
   const { bookId } = req.params;
   const userId = req.user!.userId;
-  const books = getAllBooks(userId);
-  const book = books.find(b => b.bookId === bookId);
+  const book = getBook(userId, bookId);
   if (!book) {
     res.status(404).json({ error: "Book not found" });
     return;
   }
 
-  const bibId = bibIdFromCatalogUrl(book.catalogUrl);
+  const bibId = preferredBibIdForBook(book);
   const [libraryOutcome, numRatings] = await Promise.all([
     bibId
       ? getEditionAvailability(bibId).then(
@@ -414,7 +486,7 @@ app.post("/api/refresh/:bookId", authMiddleware, async (req, res) => {
           }
         )
       : Promise.resolve({ ok: true as const, avail: null }),
-    fetchNumRatings(bookId),
+    bookId.startsWith("catalog-") ? Promise.resolve(0) : fetchNumRatings(bookId),
   ]);
 
   if (numRatings > 0) {
@@ -427,19 +499,21 @@ app.post("/api/refresh/:bookId", authMiddleware, async (req, res) => {
   }
 
   const avail = libraryOutcome.avail;
-  if (avail) {
+  if (avail && bibId) {
     const status = avail.availableCopies > 0 ? "AVAILABLE" : "UNAVAILABLE";
+    const catalogUrl = catalogUrlForBibId(bibId);
     updateLibraryData(
       userId, bookId, status,
       avail.availableCopies, avail.totalCopies, avail.heldCopies,
-      book.catalogUrl, avail.squirrelHillAvailable,
+      catalogUrl, avail.squirrelHillAvailable,
     );
     res.json({
       libraryStatus: status,
       availableCopies: avail.availableCopies,
       totalCopies: avail.totalCopies,
       heldCopies: avail.heldCopies,
-      catalogUrl: book.catalogUrl,
+      catalogUrl,
+      preferredBibId: bibId,
       squirrelHillAvailable: avail.squirrelHillAvailable,
       numRatings,
     });
@@ -456,32 +530,49 @@ app.post("/api/link-library/:bookId", authMiddleware, async (req, res) => {
     return;
   }
   const userId = req.user!.userId;
-  const books = getAllBooks(userId);
-  const book = books.find(b => b.bookId === bookId);
+  const book = getBook(userId, bookId);
   if (!book) {
     res.status(404).json({ error: "Book not found" });
     return;
   }
   try {
-    const avail = await getEditionAvailability(bibId);
-    const status = avail.availableCopies > 0 ? "AVAILABLE" : "UNAVAILABLE";
-    const catalogUrl = `https://acl.bibliocommons.com/v2/record/${bibId}`;
-    updateLibraryData(
-      userId, bookId, status,
-      avail.availableCopies, avail.totalCopies, avail.heldCopies,
-      catalogUrl, avail.squirrelHillAvailable,
-    );
-    res.json({
-      libraryStatus: status,
-      availableCopies: avail.availableCopies,
-      totalCopies: avail.totalCopies,
-      heldCopies: avail.heldCopies,
-      catalogUrl,
-      squirrelHillAvailable: avail.squirrelHillAvailable,
-    });
+    const updated = await updatePreferredEdition(userId, bookId, bibId);
+    res.json(updated);
   } catch (e) {
     console.error("Error linking book:", e);
     res.status(502).json({ error: "Could not fetch availability for that edition." });
+  }
+});
+
+app.post("/api/book/:bookId/hold", authMiddleware, async (req, res) => {
+  const { bookId } = req.params;
+  const { bibId } = req.body as { bibId?: string };
+  if (!bibId) {
+    res.status(400).json({ success: false, message: "bibId required" });
+    return;
+  }
+
+  const userId = req.user!.userId;
+  const book = getBook(userId, bookId);
+  if (!book) {
+    res.status(404).json({ success: false, message: "Book not found" });
+    return;
+  }
+
+  const creds = getLibraryCredentials(userId);
+  if (!creds) {
+    res.status(400).json({ success: false, message: "No library credentials configured" });
+    return;
+  }
+
+  try {
+    const updatedBook = await updatePreferredEdition(userId, bookId, bibId);
+    const hold = await placeHold(bibId, creds);
+    res.json({ ...hold, book: updatedBook });
+  } catch (error) {
+    console.error("Error placing book hold:", error);
+    const message = error instanceof Error ? error.message : "Failed to place hold";
+    res.status(500).json({ success: false, message });
   }
 });
 

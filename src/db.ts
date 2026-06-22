@@ -81,9 +81,13 @@ function checkAndMigrateOldSchema() {
       pinned INTEGER DEFAULT 0,
       publish_year INTEGER,
       notes TEXT,
+      preferred_bib_id TEXT,
+      intent_title TEXT,
+      intent_author TEXT,
+      intent_query TEXT,
       PRIMARY KEY (user_id, book_id)
     )`);
-    db.prepare(`INSERT INTO books_new SELECT ?, book_id, title, author, isbn, isbn13, date_added, avg_rating, num_ratings, genres, library_status, available_copies, total_copies, held_copies, library_format, catalog_url, library_checked_at, squirrel_hill_available, culture, pinned, publish_year, notes FROM books`).run(joshId);
+    db.prepare(`INSERT INTO books_new SELECT ?, book_id, title, author, isbn, isbn13, date_added, avg_rating, num_ratings, genres, library_status, available_copies, total_copies, held_copies, library_format, catalog_url, library_checked_at, squirrel_hill_available, culture, pinned, publish_year, notes, NULL, title, author, NULL FROM books`).run(joshId);
     db.exec(`DROP TABLE books`);
     db.exec(`ALTER TABLE books_new RENAME TO books`);
 
@@ -172,9 +176,28 @@ db.exec(`
     pinned INTEGER DEFAULT 0,
     publish_year INTEGER,
     notes TEXT,
+    preferred_bib_id TEXT,
+    intent_title TEXT,
+    intent_author TEXT,
+    intent_query TEXT,
     PRIMARY KEY (user_id, book_id)
   )
 `);
+
+try { db.exec(`ALTER TABLE books ADD COLUMN preferred_bib_id TEXT`); } catch { /* exists */ }
+try { db.exec(`ALTER TABLE books ADD COLUMN intent_title TEXT`); } catch { /* exists */ }
+try { db.exec(`ALTER TABLE books ADD COLUMN intent_author TEXT`); } catch { /* exists */ }
+try { db.exec(`ALTER TABLE books ADD COLUMN intent_query TEXT`); } catch { /* exists */ }
+
+db.exec(`
+  UPDATE books
+  SET preferred_bib_id = substr(catalog_url, instr(catalog_url, '/record/') + 8)
+  WHERE preferred_bib_id IS NULL
+    AND catalog_url IS NOT NULL
+    AND instr(catalog_url, '/record/') > 0
+`);
+db.exec(`UPDATE books SET intent_title = title WHERE intent_title IS NULL`);
+db.exec(`UPDATE books SET intent_author = author WHERE intent_author IS NULL`);
 
 db.exec(`CREATE INDEX IF NOT EXISTS idx_date_added ON books(date_added DESC)`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_library_status ON books(library_status)`);
@@ -228,6 +251,10 @@ export interface Book {
   pinned: boolean;
   publishYear: number | null;
   notes: string | null;
+  preferredBibId: string | null;
+  intentTitle: string | null;
+  intentAuthor: string | null;
+  intentQuery: string | null;
 }
 
 export interface BookWithUser extends Book {
@@ -289,11 +316,20 @@ const BOOK_SELECT = `
   catalog_url as catalogUrl,
   library_checked_at as libraryCheckedAt,
   squirrel_hill_available as squirrelHillAvailable,
-  culture, pinned, publish_year as publishYear, notes
+  culture, pinned, publish_year as publishYear, notes,
+  preferred_bib_id as preferredBibId,
+  intent_title as intentTitle,
+  intent_author as intentAuthor,
+  intent_query as intentQuery
 `;
 
 export function getAllBooks(userId: number): Book[] {
   return db.prepare(`SELECT ${BOOK_SELECT} FROM books WHERE user_id = ? ORDER BY date_added DESC`).all(userId) as Book[];
+}
+
+export function getBook(userId: number, bookId: string): Book | null {
+  const row = db.prepare(`SELECT ${BOOK_SELECT} FROM books WHERE user_id = ? AND book_id = ?`).get(userId, bookId) as Book | undefined;
+  return row || null;
 }
 
 export function getStats(userId: number) {
@@ -334,13 +370,109 @@ export function addBook(params: {
   isbn?: string;
   isbn13?: string;
   publishYear?: number;
+  preferredBibId?: string;
+  intentTitle?: string;
+  intentAuthor?: string;
+  intentQuery?: string;
 }): void {
   const now = new Date();
   const dateAdded = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')}`;
   db.prepare(`
-    INSERT OR IGNORE INTO books (user_id, book_id, title, author, isbn, isbn13, date_added, publish_year)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(params.userId, params.bookId, params.title, params.author, params.isbn || null, params.isbn13 || null, dateAdded, params.publishYear || null);
+    INSERT OR IGNORE INTO books (
+      user_id, book_id, title, author, isbn, isbn13, date_added, publish_year,
+      preferred_bib_id, intent_title, intent_author, intent_query
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    params.userId,
+    params.bookId,
+    params.title,
+    params.author,
+    params.isbn || null,
+    params.isbn13 || null,
+    dateAdded,
+    params.publishYear || null,
+    params.preferredBibId || null,
+    params.intentTitle || params.title,
+    params.intentAuthor || params.author,
+    params.intentQuery || null
+  );
+}
+
+export function upsertCatalogBook(params: {
+  userId: number;
+  bookId: string;
+  title: string;
+  author: string;
+  isbn?: string;
+  isbn13?: string;
+  publishYear?: number;
+  preferredBibId: string;
+  intentTitle: string;
+  intentAuthor: string;
+  intentQuery: string;
+  libraryStatus: string;
+  availableCopies: number;
+  totalCopies: number;
+  heldCopies: number;
+  catalogUrl: string;
+  squirrelHillAvailable: boolean;
+}): Book {
+  addBook({
+    userId: params.userId,
+    bookId: params.bookId,
+    title: params.title,
+    author: params.author,
+    isbn: params.isbn,
+    isbn13: params.isbn13,
+    publishYear: params.publishYear,
+    preferredBibId: params.preferredBibId,
+    intentTitle: params.intentTitle,
+    intentAuthor: params.intentAuthor,
+    intentQuery: params.intentQuery,
+  });
+
+  db.prepare(`
+    UPDATE books SET
+      title = ?,
+      author = ?,
+      isbn = ?,
+      isbn13 = ?,
+      publish_year = ?,
+      preferred_bib_id = ?,
+      intent_title = ?,
+      intent_author = ?,
+      intent_query = ?,
+      library_status = ?,
+      available_copies = ?,
+      total_copies = ?,
+      held_copies = ?,
+      catalog_url = ?,
+      library_checked_at = ?,
+      squirrel_hill_available = ?
+    WHERE user_id = ? AND book_id = ?
+  `).run(
+    params.title,
+    params.author,
+    params.isbn || null,
+    params.isbn13 || null,
+    params.publishYear || null,
+    params.preferredBibId,
+    params.intentTitle,
+    params.intentAuthor,
+    params.intentQuery,
+    params.libraryStatus,
+    params.availableCopies,
+    params.totalCopies,
+    params.heldCopies,
+    params.catalogUrl,
+    new Date().toISOString(),
+    params.squirrelHillAvailable ? 1 : 0,
+    params.userId,
+    params.bookId
+  );
+
+  return getBook(params.userId, params.bookId)!;
 }
 
 export function deleteBook(userId: number, bookId: string): void {
@@ -375,10 +507,19 @@ export function updateLibraryData(
       total_copies = ?,
       held_copies = ?,
       catalog_url = ?,
+      preferred_bib_id = ?,
       library_checked_at = ?,
       squirrel_hill_available = ?
     WHERE user_id = ? AND book_id = ?
-  `).run(status, availableCopies, totalCopies, heldCopies, catalogUrl, new Date().toISOString(), squirrelHillAvailable ? 1 : 0, userId, bookId);
+  `).run(status, availableCopies, totalCopies, heldCopies, catalogUrl, preferredBibIdFromCatalogUrl(catalogUrl), new Date().toISOString(), squirrelHillAvailable ? 1 : 0, userId, bookId);
+}
+
+function preferredBibIdFromCatalogUrl(catalogUrl: string | null): string | null {
+  if (!catalogUrl) return null;
+  const marker = "/record/";
+  const markerIndex = catalogUrl.indexOf(marker);
+  if (markerIndex >= 0) return catalogUrl.slice(markerIndex + marker.length) || null;
+  return catalogUrl.split("/").pop() || null;
 }
 
 export function updateNumRatings(userId: number, bookId: string, numRatings: number): void {
