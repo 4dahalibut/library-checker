@@ -139,73 +139,6 @@ h2 {
   margin-top: 4px;
 }
 
-.sequences {
-  display: grid;
-  gap: 14px;
-}
-
-.sequence {
-  display: grid;
-  color: inherit;
-  text-decoration: none;
-  grid-template-columns: 1fr auto;
-  gap: 4px 12px;
-  text-align: left;
-  padding: 16px 18px;
-  transition: transform 0.12s, box-shadow 0.12s;
-}
-
-.sequence:nth-child(even) {
-  transform: rotate(0.6deg);
-}
-
-.sequence:nth-child(odd) {
-  transform: rotate(-0.6deg);
-}
-
-.sequence:active {
-  transform: translate(3px, 3px);
-  box-shadow: 1px 1px 0 var(--shadow);
-}
-
-.sequence:disabled {
-  opacity: 0.6;
-}
-
-.sequence-name {
-  font-family: var(--display);
-  font-variation-settings: "SOFT" 100, "WONK" 1;
-  font-size: 1.35rem;
-  font-weight: 700;
-}
-
-.sequence-meta {
-  align-self: center;
-  font-size: 0.8rem;
-  font-weight: 800;
-  background: var(--field);
-  border-radius: 999px;
-  padding: 3px 10px;
-  color: var(--muted);
-}
-
-.sequence.started {
-  background: var(--done);
-}
-
-.sequence.started .sequence-meta {
-  background: var(--card);
-  color: var(--done-ink);
-}
-
-.sequence-items {
-  grid-column: 1 / -1;
-  color: var(--muted);
-  font-size: 0.9rem;
-  font-weight: 600;
-  line-height: 1.4;
-}
-
 .history {
   display: grid;
   overflow: hidden;
@@ -278,94 +211,156 @@ h2 {
 
 /* --- This week --- */
 
-.week {
+.week-list {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 2px;
-  padding: 8px 6px;
+  overflow: hidden;
 }
 
-.day {
+.week-row {
   display: grid;
-  justify-items: center;
-  gap: 2px;
-  padding: 6px 0 8px;
-  border-radius: 12px;
-  border: 2px solid transparent;
-  color: var(--ink);
+  grid-template-columns: 3.6rem 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 6px 10px 14px;
+  border-top: 2px dashed var(--dots);
 }
 
-.day.past {
+.week-row:first-child {
+  border-top: none;
+}
+
+.week-row.today {
+  background: var(--field);
+  box-shadow: inset 5px 0 0 var(--sun);
+}
+
+.week-row.past .week-day {
+  opacity: 0.55;
+}
+
+.week-day {
+  display: grid;
+  line-height: 1.1;
+}
+
+.week-dow {
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--muted);
 }
 
-.day-letter {
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
+.week-row.today .week-dow {
+  color: var(--ink);
 }
 
-.day-number {
+.week-date {
   font-family: var(--display);
   font-variation-settings: "SOFT" 100, "WONK" 1;
-  font-size: 1.15rem;
+  font-size: 1.35rem;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
 
-.day.today .day-number {
-  background: var(--sun);
-  color: #2b2452;
-  border-radius: 999px;
-  min-width: 1.9rem;
-  text-align: center;
+.week-sessions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
 }
 
-.day.selected {
-  border-color: var(--ink);
-  background: var(--field);
+.session-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 7px 12px;
+  font-weight: 800;
+  font-size: 0.92rem;
+  color: var(--ink);
+  text-decoration: none;
+  background: var(--card);
+  border: 2px solid var(--ink);
+  border-radius: 999px;
   box-shadow: 2px 2px 0 var(--shadow);
 }
 
-.dots {
+a.session-pill:active {
+  transform: translate(2px, 2px);
+  box-shadow: none;
+}
+
+.pill-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pill-status {
+  font-variant-numeric: tabular-nums;
+}
+
+.session-pill.done {
+  background: var(--done);
+  color: var(--done-ink);
+}
+
+.session-pill.started {
+  background: var(--pop);
+  color: var(--pop-ink);
+}
+
+.session-pill.optional {
+  border-style: dashed;
+  box-shadow: none;
+  color: var(--muted);
+}
+
+.session-pill.missed {
+  border-color: var(--muted);
+  box-shadow: none;
+  color: var(--muted);
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.session-pill.extra {
+  border-style: dotted;
+}
+
+.rest {
+  color: var(--muted);
+  font-weight: 700;
+  font-style: italic;
+}
+
+.week-edit {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  color: var(--muted);
+  border-radius: 50%;
+}
+
+.week-edit:active {
+  background: var(--field);
+}
+
+.week-links {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
-  gap: 3px;
-  min-height: 8px;
-  max-width: 34px;
-}
-
-.dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  border: 1.5px solid var(--ink);
-}
-
-.dot.done {
-  background: var(--pop);
-}
-
-.dot.started {
-  background: linear-gradient(90deg, var(--pop) 50%, transparent 50%);
-}
-
-.dot.optional {
-  border-style: dashed;
-  border-color: var(--muted);
-}
-
-.dot.missed {
-  border-color: var(--muted);
-  opacity: 0.6;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin-top: 8px;
 }
 
 .goals {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 14px;
+  margin-top: 12px;
 }
 
 .goal {
@@ -401,86 +396,6 @@ h2 {
 
 .minimum.met {
   color: var(--done-ink);
-}
-
-.plan {
-  display: grid;
-  gap: 12px;
-}
-
-.plan-row {
-  display: flex;
-  align-items: stretch;
-  overflow: hidden;
-}
-
-.plan-row.finished {
-  background: var(--done);
-}
-
-.plan-row.optional {
-  border-style: dashed;
-  box-shadow: 2px 2px 0 var(--shadow);
-}
-
-.plan-main {
-  flex: 1;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px 10px;
-  padding: 14px 16px;
-  color: inherit;
-  text-decoration: none;
-}
-
-.plan-name {
-  font-family: var(--display);
-  font-variation-settings: "SOFT" 100, "WONK" 1;
-  font-size: 1.2rem;
-  font-weight: 700;
-}
-
-.plan-move {
-  flex-shrink: 0;
-  width: 52px;
-  border-left: 2.5px dashed var(--dots);
-  font-size: 1.2rem;
-  font-weight: 800;
-  color: var(--muted);
-}
-
-.pill {
-  font-size: 0.78rem;
-  font-weight: 800;
-  background: var(--field);
-  color: var(--muted);
-  border-radius: 999px;
-  padding: 3px 10px;
-  white-space: nowrap;
-}
-
-.pill.done {
-  background: var(--card);
-  color: var(--done-ink);
-}
-
-.pill.started {
-  background: var(--pop);
-  color: var(--pop-ink);
-}
-
-.pill.missed {
-  opacity: 0.7;
-}
-
-.day-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 10px;
 }
 
 .link-button {
@@ -574,11 +489,52 @@ h2 {
 }
 
 .remove-session {
-  display: block;
-  margin-top: 18px;
   color: var(--danger);
   font-weight: 800;
-  padding: 8px 0;
+  font-size: 0.88rem;
+  padding: 4px 0;
+}
+
+.edit-item {
+  padding: 12px 0;
+  border-bottom: 2px dashed var(--dots);
+}
+
+.edit-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.edit-name {
+  font-family: var(--display);
+  font-variation-settings: "SOFT" 100, "WONK" 1;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.edit-item .sheet-label {
+  margin: 8px 0 6px;
+}
+
+.add-label {
+  margin-top: 16px;
+}
+
+a.sheet-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.option-meta {
+  font-family: var(--body);
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: var(--muted);
 }
 
 .sheet-options {

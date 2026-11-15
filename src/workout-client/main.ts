@@ -191,7 +191,6 @@ function saveLater(key: string, path: string, body: Record<string, unknown>, met
 // --- Formatting ---
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const WEEKDAY_LETTERS = ["M", "T", "W", "T", "F", "S", "S"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 function localToday(): string {
@@ -374,20 +373,40 @@ const TRASH_ICON = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden=
   stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
   <path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>`;
 
-let selectedDate = localToday();
+const EDIT_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none"
+  stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4"/></svg>`;
 
-function itemStatus(item: { optional?: boolean; session: WeekItem["session"] }, isPast: boolean): string {
-  if (item.session?.finished) return `<span class="pill done">Finished ✓</span>`;
-  if (item.session) return `<span class="pill started">${item.session.done}/${item.session.total} done</span>`;
-  if (isPast) return `<span class="pill missed">Missed</span>`;
-  return item.optional ? `<span class="pill">Optional</span>` : "";
+const SHORT_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+type PillItem = { sequenceId: string; name: string; optional: boolean; session: WeekItem["session"]; extra?: boolean };
+
+/** One session on a day of the week: tap to start it, or to reopen it once begun */
+function sessionPill(item: PillItem, day: WeekDay): string {
+  const s = item.session;
+  const state = s?.finished
+    ? "done"
+    : s
+      ? "started"
+      : day.isPast
+        ? "missed"
+        : item.optional
+          ? "optional"
+          : "";
+  const status = s?.finished
+    ? `<span class="pill-status">✓</span>`
+    : s
+      ? `<span class="pill-status">${s.done}/${s.total}</span>`
+      : "";
+  const body = `<span class="pill-name">${escapeHtml(item.name)}</span>${status}`;
+  // Nothing to open for a past day that was skipped
+  if (state === "missed") return `<span class="session-pill missed">${body}</span>`;
+  const href = s ? `#session-${s.id}` : `#sequence-${encodeURIComponent(item.sequenceId)}`;
+  return `<a class="session-pill ${state}${item.extra ? " extra" : ""}" href="${href}">${body}</a>`;
 }
 
-function dotClass(item: WeekItem, isPast: boolean): string {
-  if (item.session?.finished) return "dot done";
-  if (item.session) return "dot started";
-  if (item.optional) return "dot optional";
-  return isPast ? "dot missed" : "dot";
+function dayTitle(day: WeekDay): string {
+  return day.isToday ? "Today" : formatDate(day.date);
 }
 
 async function renderHome(): Promise<void> {
@@ -406,19 +425,31 @@ async function renderHome(): Promise<void> {
     app.innerHTML = `<p class="loading">Couldn't load workouts. Check your connection and reopen.</p>`;
     return;
   }
-  if (!week.days.some((d) => d.date === selectedDate)) selectedDate = today;
-  const day = week.days.find((d) => d.date === selectedDate)!;
 
-  const strip = week.days
+  const rows = week.days
     .map((d) => {
-      const dots = d.items.map((i) => `<span class="${dotClass(i, d.isPast)}"></span>`).join("");
-      const classes = ["day", d.isToday ? "today" : "", d.date === selectedDate ? "selected" : "", d.isPast ? "past" : ""];
+      const pills: PillItem[] = [
+        ...d.items,
+        ...d.extras.map((e) => ({
+          sequenceId: e.sequenceId,
+          name: e.sequenceName,
+          optional: false,
+          session: { id: e.id, finished: e.finished, done: e.done, total: e.total },
+          extra: true,
+        })),
+      ];
+      const content = pills.length
+        ? pills.map((p) => sessionPill(p, d)).join("")
+        : `<span class="rest">${d.isPast ? "Nothing" : "Rest"}</span>`;
       return `
-        <button class="${classes.join(" ")}" data-date="${d.date}" aria-label="${formatDate(d.date)}">
-          <span class="day-letter">${WEEKDAY_LETTERS[d.weekday]}</span>
-          <span class="day-number">${dayNumber(d.date)}</span>
-          <span class="dots">${dots}</span>
-        </button>`;
+        <div class="week-row${d.isToday ? " today" : ""}${d.isPast ? " past" : ""}">
+          <div class="week-day">
+            <span class="week-dow">${d.isToday ? "Today" : SHORT_DAYS[d.weekday]}</span>
+            <span class="week-date">${dayNumber(d.date)}</span>
+          </div>
+          <div class="week-sessions">${content}</div>
+          ${d.isPast ? "" : `<button class="week-edit" data-date="${d.date}" aria-label="Change ${dayTitle(d)}">${EDIT_ICON}</button>`}
+        </div>`;
     })
     .join("");
 
@@ -439,61 +470,8 @@ async function renderHome(): Promise<void> {
           week.minimumMet ? "met ✓" : `· ${short.join(", ")}`
         }</p>`;
 
-  // A day's sessions: tap to open (or start, if it's today), ⇄ to move or remove
-  const canChange = !day.isPast;
-  const dayRows = [
-    ...day.items.map((item) => ({ ...item, extra: false })),
-    ...day.extras.map((e) => ({
-      sequenceId: e.sequenceId,
-      name: e.sequenceName,
-      optional: false,
-      session: { id: e.id, finished: e.finished, done: e.done, total: e.total },
-      extra: true,
-    })),
-  ];
-  const rows = dayRows.length
-    ? dayRows
-        .map((item) => {
-          const href = item.session
-            ? `#session-${item.session.id}`
-            : `#sequence-${encodeURIComponent(item.sequenceId)}`;
-          const movable = canChange && !item.extra && !item.session;
-          return `
-        <div class="plan-row sticker${item.session?.finished ? " finished" : ""}${item.optional ? " optional" : ""}">
-          <a class="plan-main" href="${href}">
-            <span class="plan-name">${escapeHtml(item.name)}</span>
-            ${item.extra ? `<span class="pill">Extra</span>` : itemStatus(item, day.isPast)}
-          </a>
-          ${movable ? `<button class="plan-move" data-sequence="${escapeHtml(item.sequenceId)}" aria-label="Move or remove">⇄</button>` : ""}
-        </div>`;
-        })
-        .join("")
-    : `<p class="empty">${day.isPast ? "Nothing on this day." : "Rest day. Enjoy it."}</p>`;
-
-  const dayActions = canChange
-    ? `<div class="day-actions"><button id="add-session" class="link-button">+ Add a session</button></div>`
-    : "";
   // Undo works on the whole week, so a session moved between two days can't get lost
   const changedDays = week.days.filter((d) => d.changed);
-
-  const sequenceCards = sequences.length
-    ? sequences
-        .map((seq) => {
-          const started = sessions.find((s) => s.sequence_id === seq.id && s.date === today);
-          const meta = started
-            ? started.finished_at
-              ? "Finished ✓"
-              : `${started.done}/${started.total} done`
-            : exerciseCount(seq.items.length);
-          const href = started ? `#session-${started.id}` : `#sequence-${encodeURIComponent(seq.id)}`;
-          return `
-        <a class="sequence sticker${started ? " started" : ""}" href="${href}">
-          <span class="sequence-name">${escapeHtml(seq.name)}</span>
-          <span class="sequence-meta">${meta}</span>
-        </a>`;
-        })
-        .join("")
-    : `<p class="empty">No sequences yet. Ask Claude to cook one up.</p>`;
 
   const history = sessions.length
     ? sessions
@@ -519,19 +497,13 @@ async function renderHome(): Promise<void> {
     </header>
     <section>
       <h2>This week</h2>
-      <div class="week sticker">${strip}</div>
+      <div class="week-list sticker">${rows}</div>
+      <div class="week-links">
+        <button id="start-other" class="link-button">Start something else</button>
+        ${changedDays.length ? `<button id="reset-week" class="link-button">Undo this week's changes</button>` : ""}
+      </div>
       <div class="goals">${progress}</div>
       ${minimumLine}
-      ${changedDays.length ? `<button id="reset-week" class="link-button">Undo this week's changes</button>` : ""}
-    </section>
-    <section>
-      <h2>${day.isToday ? "Today" : formatDate(day.date)}</h2>
-      <div class="plan">${rows}</div>
-      ${dayActions}
-    </section>
-    <section>
-      <h2>All sessions</h2>
-      <div class="sequences">${sequenceCards}</div>
     </section>
     <section>
       <h2>Log</h2>
@@ -564,87 +536,18 @@ async function renderHome(): Promise<void> {
     });
   });
 
-  app.querySelectorAll<HTMLButtonElement>(".day").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      selectedDate = btn.dataset.date!;
-      renderHome();
-    });
-  });
-
-  const later = week.days.filter((d) => !d.isPast);
-
-  app.querySelectorAll<HTMLButtonElement>(".plan-move").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const sequenceId = btn.dataset.sequence!;
-      const name = day.items.find((i) => i.sequenceId === sequenceId)!.name;
-      const chips = later
-        .filter((d) => d.date !== day.date)
-        .map(
-          (d) =>
-            `<button class="chip" data-to="${d.date}">${d.isToday ? "Today" : `${DAYS[(d.weekday + 1) % 7]} ${dayNumber(d.date)}`}</button>`
-        )
-        .join("");
-      openSheet(
-        name,
-        `<p class="sheet-label">Move to</p>
-         <div class="chips">${chips || `<span class="empty">No days left this week.</span>`}</div>
-         <button class="remove-session">Remove from ${day.isToday ? "today" : formatDate(day.date)}</button>`,
-        (sheet, close) => {
-          sheet.querySelectorAll<HTMLButtonElement>("[data-to]").forEach((chip) => {
-            chip.addEventListener("click", async () => {
-              chip.disabled = true;
-              try {
-                await api("/days/move", {
-                  method: "POST",
-                  body: JSON.stringify({ from: day.date, to: chip.dataset.to, sequenceId }),
-                });
-                close();
-                renderHome();
-              } catch {
-                chip.disabled = false;
-                alert("Couldn't move it. Check your connection.");
-              }
-            });
-          });
-          sheet.querySelector(".remove-session")!.addEventListener("click", async () => {
-            const items: PlanItem[] = day.items.map((i) => ({ sequenceId: i.sequenceId, optional: i.optional }));
-            items.splice(
-              items.findIndex((i) => i.sequenceId === sequenceId),
-              1
-            );
-            try {
-              await api(`/days/${day.date}`, { method: "PUT", body: JSON.stringify({ items }) });
-              close();
-              renderHome();
-            } catch {
-              alert("Couldn't remove it. Check your connection.");
-            }
-          });
-        }
-      );
-    });
-  });
-
-  document.getElementById("add-session")?.addEventListener("click", () => {
+  // Anything not on the plan: today's session if it's begun, otherwise its preview
+  document.getElementById("start-other")!.addEventListener("click", () => {
     const options = sequences
-      .map((s) => `<button class="sheet-option" data-add="${escapeHtml(s.id)}">${escapeHtml(s.name)}</button>`)
+      .map((seq) => {
+        const started = sessions.find((s) => s.sequence_id === seq.id && s.date === today);
+        const href = started ? `#session-${started.id}` : `#sequence-${encodeURIComponent(seq.id)}`;
+        const meta = started ? (started.finished_at ? "Finished ✓" : `${started.done}/${started.total}`) : "";
+        return `<a class="sheet-option" href="${href}">${escapeHtml(seq.name)}${meta ? ` <span class="option-meta">${meta}</span>` : ""}</a>`;
+      })
       .join("");
-    openSheet(`Add to ${day.isToday ? "today" : formatDate(day.date)}`, `<div class="sheet-options">${options}</div>`, (sheet, close) => {
-      sheet.querySelectorAll<HTMLButtonElement>("[data-add]").forEach((opt) => {
-        opt.addEventListener("click", async () => {
-          const items: PlanItem[] = [
-            ...day.items.map((i) => ({ sequenceId: i.sequenceId, optional: i.optional })),
-            { sequenceId: opt.dataset.add! },
-          ];
-          try {
-            await api(`/days/${day.date}`, { method: "PUT", body: JSON.stringify({ items }) });
-            close();
-            renderHome();
-          } catch {
-            alert("Couldn't add it. Check your connection.");
-          }
-        });
-      });
+    openSheet("Start something else", `<div class="sheet-options">${options}</div>`, (sheet, close) => {
+      sheet.querySelectorAll("a").forEach((a) => a.addEventListener("click", close));
     });
   });
 
@@ -656,6 +559,104 @@ async function renderHome(): Promise<void> {
     }
     renderHome();
   });
+
+  const later = week.days.filter((d) => !d.isPast);
+  app.querySelectorAll<HTMLButtonElement>(".week-edit").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const day = week.days.find((d) => d.date === btn.dataset.date)!;
+      openDaySheet(day, later, sequences);
+    });
+  });
+}
+
+/** Move, remove or add sessions on one day */
+function openDaySheet(day: WeekDay, later: WeekDay[], sequences: Sequence[]): void {
+  const planItems = (): PlanItem[] => day.items.map((i) => ({ sequenceId: i.sequenceId, optional: i.optional }));
+  const editable = day.items.filter((i) => !i.session);
+  const blocks = editable
+    .map((item) => {
+      const chips = later
+        .filter((d) => d.date !== day.date)
+        .map(
+          (d) =>
+            `<button class="chip" data-move="${escapeHtml(item.sequenceId)}" data-to="${d.date}">${
+              d.isToday ? "Today" : `${SHORT_DAYS[d.weekday]} ${dayNumber(d.date)}`
+            }</button>`
+        )
+        .join("");
+      return `
+        <div class="edit-item">
+          <div class="edit-head">
+            <span class="edit-name">${escapeHtml(item.name)}</span>
+            <button class="remove-session" data-remove="${escapeHtml(item.sequenceId)}">Remove</button>
+          </div>
+          ${chips ? `<p class="sheet-label">Move to</p><div class="chips">${chips}</div>` : ""}
+        </div>`;
+    })
+    .join("");
+  const options = sequences
+    .map((s) => `<button class="sheet-option" data-add="${escapeHtml(s.id)}">${escapeHtml(s.name)}</button>`)
+    .join("");
+
+  openSheet(
+    dayTitle(day),
+    `${blocks || `<p class="sheet-label">Nothing planned to move.</p>`}
+     <p class="sheet-label add-label">Add a session</p>
+     <div class="sheet-options">${options}</div>`,
+    (sheet, close) => {
+      const run = async (el: HTMLButtonElement, request: () => Promise<unknown>, failure: string) => {
+        el.disabled = true;
+        try {
+          await request();
+          close();
+          renderHome();
+        } catch {
+          el.disabled = false;
+          alert(failure);
+        }
+      };
+      sheet.querySelectorAll<HTMLButtonElement>("[data-move]").forEach((chip) => {
+        chip.addEventListener("click", () =>
+          run(
+            chip,
+            () =>
+              api("/days/move", {
+                method: "POST",
+                body: JSON.stringify({ from: day.date, to: chip.dataset.to, sequenceId: chip.dataset.move }),
+              }),
+            "Couldn't move it. Check your connection."
+          )
+        );
+      });
+      sheet.querySelectorAll<HTMLButtonElement>("[data-remove]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const items = planItems();
+          items.splice(
+            items.findIndex((i) => i.sequenceId === btn.dataset.remove),
+            1
+          );
+          run(
+            btn,
+            () => api(`/days/${day.date}`, { method: "PUT", body: JSON.stringify({ items }) }),
+            "Couldn't remove it. Check your connection."
+          );
+        });
+      });
+      sheet.querySelectorAll<HTMLButtonElement>("[data-add]").forEach((opt) => {
+        opt.addEventListener("click", () =>
+          run(
+            opt,
+            () =>
+              api(`/days/${day.date}`, {
+                method: "PUT",
+                body: JSON.stringify({ items: [...planItems(), { sequenceId: opt.dataset.add! }] }),
+              }),
+            "Couldn't add it. Check your connection."
+          )
+        );
+      });
+    }
+  );
 }
 
 // --- Sequence preview ---
