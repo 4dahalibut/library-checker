@@ -29,4 +29,22 @@ export interface Sequence {
   items: SequenceItem[];
 }
 
-export const sequences: Sequence[] = [];
+export const sequences: Sequence[] = [
+  {
+    id: "main",
+    name: "Main Day",
+    items: [
+      { name: "Sled Warm Up", sets: 1, seconds: 600 },
+      { name: "Tibialis Raise", sets: 2, reps: 25 },
+      { name: "Deep Calf Raise", sets: 2, reps: 25 },
+      { name: "Reverse Step Up", sets: 2, reps: 25 },
+      { name: "Full Range Split Squats", sets: 2, reps: 10 },
+      { name: "External Rotation", sets: 1, reps: 15 },
+      { name: "Pullover", sets: 2, reps: 15 },
+      { name: "Trap 3 Raise", sets: 2, reps: 10 },
+      { name: "Back Extensions", sets: 1, seconds: 120, cue: "Lvl 1 - Iso Holds" },
+      { name: "Hip Flexor Kick Out", sets: 2, reps: 5 },
+      { name: "Side Bend", sets: 2, reps: 12 },
+    ],
+  },
+];
