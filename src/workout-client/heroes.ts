@@ -19,9 +19,28 @@ export const HEROES: Hero[] = [
   { name: "Ido", face: new URL("./heroes/ido.png", import.meta.url).href },
 ];
 
-/** The same hero all day, a different one each day (local date) */
+const STORAGE_KEY = "workout-hero-of-the-day";
+
+/**
+ * The same hero all day, a different one each day (local date). The day's pick is
+ * remembered on this device, so adding heroes or a deploy doesn't swap it mid-day.
+ */
 export function heroOfTheDay(date: Date = new Date()): Hero | null {
   if (!HEROES.length) return null;
+  const today = `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null") as { day: string; name: string } | null;
+    const kept = saved?.day === today ? HEROES.find((h) => h.name === saved.name) : undefined;
+    if (kept) return kept;
+  } catch {
+    // Storage can be unavailable (private mode); fall back to the date-based pick
+  }
   const day = Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86_400_000);
-  return HEROES[day % HEROES.length];
+  const hero = HEROES[day % HEROES.length];
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ day: today, name: hero.name }));
+  } catch {
+    // Not remembered this time; still the same pick for the rest of the day unless the list changes
+  }
+  return hero;
 }
