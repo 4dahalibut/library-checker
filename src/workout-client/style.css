@@ -286,6 +286,36 @@ h2 {
   box-shadow: 2px 2px 0 var(--shadow);
 }
 
+/* Long-press picks a session up, so keep iOS from selecting text or showing a menu */
+.session-pill {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.session-pill.drag-source {
+  opacity: 0.35;
+}
+
+.drag-ghost {
+  position: fixed;
+  z-index: 40;
+  pointer-events: none;
+  margin: 0;
+  transform: rotate(-4deg) scale(1.08);
+  box-shadow: 5px 5px 0 var(--shadow);
+}
+
+body.dragging {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.week-row.drop-target {
+  background: var(--done);
+  box-shadow: inset 0 0 0 3px var(--ink);
+}
+
 a.session-pill:active {
   transform: translate(2px, 2px);
   box-shadow: none;
@@ -496,16 +526,14 @@ a.session-pill:active {
 }
 
 .edit-item {
-  padding: 12px 0;
-  border-bottom: 2px dashed var(--dots);
-}
-
-.edit-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
+  padding: 12px 0;
+  border-bottom: 2px dashed var(--dots);
 }
+
 
 .edit-name {
   font-family: var(--display);
@@ -514,9 +542,6 @@ a.session-pill:active {
   font-weight: 700;
 }
 
-.edit-item .sheet-label {
-  margin: 8px 0 6px;
-}
 
 .add-label {
   margin-top: 16px;

@@ -402,7 +402,9 @@ function sessionPill(item: PillItem, day: WeekDay): string {
   // Nothing to open for a past day that was skipped
   if (state === "missed") return `<span class="session-pill missed">${body}</span>`;
   const href = s ? `#session-${s.id}` : `#sequence-${encodeURIComponent(item.sequenceId)}`;
-  return `<a class="session-pill ${state}${item.extra ? " extra" : ""}" href="${href}">${body}</a>`;
+  // Planned sessions not yet begun can be dragged to another day
+  const drag = !s && !item.extra ? ` data-drag-from="${day.date}" data-sequence="${escapeHtml(item.sequenceId)}" draggable="false"` : "";
+  return `<a class="session-pill ${state}${item.extra ? " extra" : ""}" href="${href}"${drag}>${body}</a>`;
 }
 
 function dayTitle(day: WeekDay): string {
@@ -442,7 +444,7 @@ async function renderHome(): Promise<void> {
         ? pills.map((p) => sessionPill(p, d)).join("")
         : `<span class="rest">${d.isPast ? "Nothing" : "Rest"}</span>`;
       return `
-        <div class="week-row${d.isToday ? " today" : ""}${d.isPast ? " past" : ""}">
+        <div class="week-row${d.isToday ? " today" : ""}${d.isPast ? " past" : ""}"${d.isPast ? "" : ` data-drop="${d.date}"`}>
           <div class="week-day">
             <span class="week-dow">${d.isToday ? "Today" : SHORT_DAYS[d.weekday]}</span>
             <span class="week-date">${dayNumber(d.date)}</span>
@@ -542,39 +544,166 @@ async function renderHome(): Promise<void> {
     renderHome();
   });
 
-  const later = week.days.filter((d) => !d.isPast);
   app.querySelectorAll<HTMLButtonElement>(".week-edit").forEach((btn) => {
     btn.addEventListener("click", () => {
       const day = week.days.find((d) => d.date === btn.dataset.date)!;
-      openDaySheet(day, later, sequences);
+      openDaySheet(day, sequences);
     });
+  });
+
+  app.querySelectorAll<HTMLElement>("[data-drag-from]").forEach(bindDrag);
+}
+
+// --- Dragging sessions between days ---
+// Press and hold a session to pick it up, then drop it on another day. A quick tap
+// still opens it, and a swipe still scrolls, since only a held press starts a drag.
+
+const HOLD_MS = 350;
+const MOVE_TOLERANCE = 8;
+
+let press: { pill: HTMLElement; x: number; y: number; timer: number } | null = null;
+let drag: {
+  pill: HTMLElement;
+  ghost: HTMLElement;
+  dx: number;
+  dy: number;
+  x: number;
+  y: number;
+  target: HTMLElement | null;
+  frame: number;
+} | null = null;
+let suppressClick = false;
+
+function bindDrag(pill: HTMLElement): void {
+  pill.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || drag) return;
+    const x = e.clientX;
+    const y = e.clientY;
+    press = { pill, x, y, timer: window.setTimeout(() => startDrag(pill, x, y), HOLD_MS) };
+  });
+  // No long-press menu, link preview or the browser's own link dragging
+  pill.addEventListener("contextmenu", (e) => e.preventDefault());
+  pill.addEventListener("dragstart", (e) => e.preventDefault());
+  pill.addEventListener("click", (e) => {
+    if (suppressClick) {
+      e.preventDefault();
+      suppressClick = false;
+    }
   });
 }
 
-/** Move, remove or add sessions on one day */
-function openDaySheet(day: WeekDay, later: WeekDay[], sequences: Sequence[]): void {
+function cancelPress(): void {
+  if (press) clearTimeout(press.timer);
+  press = null;
+}
+
+function startDrag(pill: HTMLElement, x: number, y: number): void {
+  press = null;
+  const rect = pill.getBoundingClientRect();
+  const ghost = pill.cloneNode(true) as HTMLElement;
+  ghost.classList.add("drag-ghost");
+  ghost.style.width = `${rect.width}px`;
+  ghost.style.left = `${rect.left}px`;
+  ghost.style.top = `${rect.top}px`;
+  document.body.appendChild(ghost);
+  pill.classList.add("drag-source");
+  document.body.classList.add("dragging");
+  navigator.vibrate?.(12);
+  drag = { pill, ghost, dx: x - rect.left, dy: y - rect.top, x, y, target: null, frame: 0 };
+  updateDrag();
+  drag.frame = requestAnimationFrame(autoScroll);
+}
+
+function dropTargetAt(x: number, y: number): HTMLElement | null {
+  const row = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-drop]") ?? null;
+  return row && row.dataset.drop !== drag?.pill.dataset.dragFrom ? row : null;
+}
+
+function updateDrag(): void {
+  if (!drag) return;
+  drag.ghost.style.left = `${drag.x - drag.dx}px`;
+  drag.ghost.style.top = `${drag.y - drag.dy}px`;
+  const target = dropTargetAt(drag.x, drag.y);
+  if (target !== drag.target) {
+    drag.target?.classList.remove("drop-target");
+    target?.classList.add("drop-target");
+    drag.target = target;
+  }
+}
+
+// Scroll the page when dragging near the top or bottom edge
+function autoScroll(): void {
+  if (!drag) return;
+  const edge = 70;
+  const speed = drag.y < edge ? -(edge - drag.y) / 5 : drag.y > innerHeight - edge ? (drag.y - (innerHeight - edge)) / 5 : 0;
+  if (speed) {
+    scrollBy(0, speed);
+    updateDrag();
+  }
+  drag.frame = requestAnimationFrame(autoScroll);
+}
+
+async function endDrag(drop: boolean): Promise<void> {
+  if (!drag) return;
+  const { pill, ghost, target, frame } = drag;
+  drag = null;
+  cancelAnimationFrame(frame);
+  ghost.remove();
+  pill.classList.remove("drag-source");
+  target?.classList.remove("drop-target");
+  document.body.classList.remove("dragging");
+  // The pointerup that ends a drag would otherwise also count as a tap
+  suppressClick = true;
+  setTimeout(() => (suppressClick = false), 400);
+  if (!drop || !target) return;
+  try {
+    await api("/days/move", {
+      method: "POST",
+      body: JSON.stringify({ from: pill.dataset.dragFrom, to: target.dataset.drop, sequenceId: pill.dataset.sequence }),
+    });
+  } catch {
+    alert("Couldn't move it. Check your connection.");
+  }
+  renderHome();
+}
+
+document.addEventListener("pointermove", (e) => {
+  if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > MOVE_TOLERANCE) cancelPress();
+  if (drag) {
+    drag.x = e.clientX;
+    drag.y = e.clientY;
+    updateDrag();
+  }
+});
+document.addEventListener("pointerup", () => {
+  cancelPress();
+  endDrag(true);
+});
+document.addEventListener("pointercancel", () => {
+  cancelPress();
+  endDrag(false);
+});
+// While dragging, a finger moving shouldn't scroll the page
+document.addEventListener(
+  "touchmove",
+  (e) => {
+    if (drag) e.preventDefault();
+  },
+  { passive: false }
+);
+
+/** Remove or add sessions on one day (moving is done by dragging) */
+function openDaySheet(day: WeekDay, sequences: Sequence[]): void {
   const planItems = (): PlanItem[] => day.items.map((i) => ({ sequenceId: i.sequenceId, optional: i.optional }));
   const editable = day.items.filter((i) => !i.session);
-  const blocks = editable
-    .map((item) => {
-      const chips = later
-        .filter((d) => d.date !== day.date)
-        .map(
-          (d) =>
-            `<button class="chip" data-move="${escapeHtml(item.sequenceId)}" data-to="${d.date}">${
-              d.isToday ? "Today" : `${SHORT_DAYS[d.weekday]} ${dayNumber(d.date)}`
-            }</button>`
-        )
-        .join("");
-      return `
+  const rows = editable
+    .map(
+      (item) => `
         <div class="edit-item">
-          <div class="edit-head">
-            <span class="edit-name">${escapeHtml(item.name)}</span>
-            <button class="remove-session" data-remove="${escapeHtml(item.sequenceId)}">Remove</button>
-          </div>
-          ${chips ? `<p class="sheet-label">Move to</p><div class="chips">${chips}</div>` : ""}
-        </div>`;
-    })
+          <span class="edit-name">${escapeHtml(item.name)}</span>
+          <button class="remove-session" data-remove="${escapeHtml(item.sequenceId)}">Remove</button>
+        </div>`
+    )
     .join("");
   const options = sequences
     .map((s) => `<button class="sheet-option" data-add="${escapeHtml(s.id)}">${escapeHtml(s.name)}</button>`)
@@ -582,14 +711,15 @@ function openDaySheet(day: WeekDay, later: WeekDay[], sequences: Sequence[]): vo
 
   openSheet(
     dayTitle(day),
-    `${blocks || `<p class="sheet-label">Nothing planned to move.</p>`}
+    `${rows}
+     <p class="sheet-label">To move a session, hold it in the week and drag it to another day.</p>
      <p class="sheet-label add-label">Add a session</p>
      <div class="sheet-options">${options}</div>`,
     (sheet, close) => {
-      const run = async (el: HTMLButtonElement, request: () => Promise<unknown>, failure: string) => {
+      const run = async (el: HTMLButtonElement, items: PlanItem[], failure: string) => {
         el.disabled = true;
         try {
-          await request();
+          await api(`/days/${day.date}`, { method: "PUT", body: JSON.stringify({ items }) });
           close();
           renderHome();
         } catch {
@@ -597,19 +727,6 @@ function openDaySheet(day: WeekDay, later: WeekDay[], sequences: Sequence[]): vo
           alert(failure);
         }
       };
-      sheet.querySelectorAll<HTMLButtonElement>("[data-move]").forEach((chip) => {
-        chip.addEventListener("click", () =>
-          run(
-            chip,
-            () =>
-              api("/days/move", {
-                method: "POST",
-                body: JSON.stringify({ from: day.date, to: chip.dataset.to, sequenceId: chip.dataset.move }),
-              }),
-            "Couldn't move it. Check your connection."
-          )
-        );
-      });
       sheet.querySelectorAll<HTMLButtonElement>("[data-remove]").forEach((btn) => {
         btn.addEventListener("click", () => {
           const items = planItems();
@@ -617,24 +734,12 @@ function openDaySheet(day: WeekDay, later: WeekDay[], sequences: Sequence[]): vo
             items.findIndex((i) => i.sequenceId === btn.dataset.remove),
             1
           );
-          run(
-            btn,
-            () => api(`/days/${day.date}`, { method: "PUT", body: JSON.stringify({ items }) }),
-            "Couldn't remove it. Check your connection."
-          );
+          run(btn, items, "Couldn't remove it. Check your connection.");
         });
       });
       sheet.querySelectorAll<HTMLButtonElement>("[data-add]").forEach((opt) => {
         opt.addEventListener("click", () =>
-          run(
-            opt,
-            () =>
-              api(`/days/${day.date}`, {
-                method: "PUT",
-                body: JSON.stringify({ items: [...planItems(), { sequenceId: opt.dataset.add! }] }),
-              }),
-            "Couldn't add it. Check your connection."
-          )
+          run(opt, [...planItems(), { sequenceId: opt.dataset.add! }], "Couldn't add it. Check your connection.")
         );
       });
     }
