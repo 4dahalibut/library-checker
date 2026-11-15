@@ -164,7 +164,8 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
-// Saves are fire-and-forget from the UI's point of view; the status pill reports failures
+// Saves are fire-and-forget from the UI's point of view; the status spot only speaks up
+// when one fails, and clears once saving works again
 let pendingSaves = 0;
 
 function setSaveStatus(text: string, failed = false): void {
@@ -176,11 +177,10 @@ function setSaveStatus(text: string, failed = false): void {
 
 async function save(path: string, body: Record<string, unknown>, method = "PATCH"): Promise<boolean> {
   pendingSaves++;
-  setSaveStatus("Saving…");
   try {
     await api(path, { method, body: JSON.stringify(body) });
     pendingSaves--;
-    if (pendingSaves === 0) setSaveStatus("Saved");
+    if (pendingSaves === 0) setSaveStatus("");
     return true;
   } catch {
     pendingSaves--;
