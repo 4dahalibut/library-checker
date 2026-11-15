@@ -234,13 +234,46 @@ h2 {
   box-shadow: inset 5px 0 0 var(--sun);
 }
 
+/* On its own, today's row is the whole card, so the day rows' dashed divider goes too */
+.week-list.collapsed .week-row.today {
+  border-top: none;
+}
+
 .week-row.past .week-day {
   opacity: 0.55;
 }
 
 .week-day {
   display: grid;
+  justify-items: start;
+  text-align: left;
   line-height: 1.1;
+  color: var(--ink);
+  align-self: stretch;
+  align-content: center;
+}
+
+/* Folded: only today's row shows */
+.week-list.collapsed .week-row:not(.today) {
+  display: none;
+}
+
+.week-list.collapsed + .week-links {
+  display: none;
+}
+
+.week-chevron {
+  display: inline-block;
+  margin-left: 4px;
+  font-family: var(--body);
+  font-size: 0.85rem;
+  color: var(--muted);
+  transform: rotate(180deg);
+  transition: transform 0.15s;
+}
+
+.week-list.collapsed .week-chevron {
+  transform: none;
 }
 
 .week-dow {

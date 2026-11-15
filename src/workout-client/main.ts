@@ -414,6 +414,9 @@ function dayTitle(day: WeekDay): string {
   return day.isToday ? "Today" : formatDate(day.date);
 }
 
+// Home opens on just today; tapping it shows the whole week (kept while the app is open)
+let weekOpen = false;
+
 async function renderHome(): Promise<void> {
   app.innerHTML = `<p class="loading">Loading…</p>`;
   const today = localToday();
@@ -448,10 +451,10 @@ async function renderHome(): Promise<void> {
         : `<span class="rest">${d.isPast ? "Nothing" : "Rest"}</span>`;
       return `
         <div class="week-row${d.isToday ? " today" : ""}${d.isPast ? " past" : ""}"${d.isPast ? "" : ` data-drop="${d.date}"`}>
-          <div class="week-day">
+          <button class="week-day" aria-label="${d.isToday ? "Show or hide the rest of the week" : formatDate(d.date)}">
             <span class="week-dow">${d.isToday ? "Today" : SHORT_DAYS[d.weekday]}</span>
-            <span class="week-date">${dayNumber(d.date)}</span>
-          </div>
+            <span class="week-date">${dayNumber(d.date)}${d.isToday ? `<span class="week-chevron" aria-hidden="true">▾</span>` : ""}</span>
+          </button>
           <div class="week-sessions">${content}</div>
           ${d.isPast ? "" : `<button class="week-edit" data-date="${d.date}" aria-label="Change ${dayTitle(d)}">${EDIT_ICON}</button>`}
         </div>`;
@@ -484,8 +487,8 @@ async function renderHome(): Promise<void> {
       <p class="greeting">${greeting()}</p>
     </header>
     <section>
-      <h2>This week</h2>
-      <div class="week-list sticker">${rows}</div>
+      <h2 id="week-heading">${weekOpen ? "This week" : "Today"}</h2>
+      <div class="week-list sticker${weekOpen ? "" : " collapsed"}">${rows}</div>
       ${changedDays.length ? `<div class="week-links"><button id="reset-week" class="link-button">Undo this week's changes</button></div>` : ""}
     </section>
     <section>
@@ -526,6 +529,16 @@ async function renderHome(): Promise<void> {
       alert("Couldn't undo everything. Check your connection.");
     }
     renderHome();
+  });
+
+  // Tapping a day's label opens or folds the rest of the week
+  const weekList = app.querySelector<HTMLElement>(".week-list")!;
+  app.querySelectorAll<HTMLButtonElement>(".week-day").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      weekOpen = !weekOpen;
+      weekList.classList.toggle("collapsed", !weekOpen);
+      document.getElementById("week-heading")!.textContent = weekOpen ? "This week" : "Today";
+    });
   });
 
   app.querySelectorAll<HTMLButtonElement>(".week-edit").forEach((btn) => {
