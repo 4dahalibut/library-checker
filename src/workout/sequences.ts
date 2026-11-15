@@ -47,4 +47,19 @@ export const sequences: Sequence[] = [
       { name: "Side Bend", sets: 2, reps: 12 },
     ],
   },
+  {
+    id: "mobility",
+    name: "Mobility Day",
+    items: [
+      { name: "Couch Stretch", sets: 2, seconds: 60 },
+      { name: "Fire Hydrants", sets: 1, reps: 10 },
+      { name: "Hip Abduction", sets: 1, reps: 10 },
+      { name: "90/90 Rotation", sets: 1, reps: 10 },
+      { name: "Outer Hip Dropset", sets: 1, reps: 1 },
+      { name: "Pigeon Strength", sets: 1, reps: 20 },
+      { name: "Deep Squats", sets: 2, seconds: 120 },
+      { name: "Loaded Butterfly", sets: 2, seconds: 60 },
+      { name: "Active Hangs", sets: 1, seconds: 60 },
+    ],
+  },
 ];
