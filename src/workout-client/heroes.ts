@@ -12,6 +12,7 @@ export const HEROES: Hero[] = [
   { name: "Bruce Lee", face: new URL("./heroes/bruce-lee.png", import.meta.url).href },
   { name: "Arnold Schwarzenegger", face: new URL("./heroes/arnold.png", import.meta.url).href },
   { name: "Yung Chomsky", face: new URL("./heroes/yung-chomsky.png", import.meta.url).href },
+  { name: "Bearistotle", face: new URL("./heroes/bearistotle.png", import.meta.url).href },
 ];
 
 /** The same hero all day, a different one each day (local date) */
