@@ -97,6 +97,7 @@ interface SessionItem {
   timed: number;
   to_failure: number;
   set_reps: (number | null)[];
+  last_set_reps: (number | null)[];
   description: string;
   cues: string[];
 }
@@ -805,7 +806,7 @@ function renderSetButtons(item: SessionItem): string {
         (reps, i) =>
           `<label class="field rep-set${reps !== null ? " on" : ""}"><span>Set ${labelFor(i)}</span>
              <input type="text" inputmode="numeric" data-set-reps="${i + 1}" value="${reps ?? ""}"
-               aria-label="Reps in set ${labelFor(i)}" /><span>reps</span></label>`
+               placeholder="${item.last_set_reps[i] ?? ""}" aria-label="Reps in set ${labelFor(i)}" /><span>reps</span></label>`
       )
       .join("");
   }

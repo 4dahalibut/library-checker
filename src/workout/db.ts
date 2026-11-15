@@ -707,6 +707,8 @@ export interface SessionItem {
   to_failure: number;
   /** Reps reached per set (to-failure exercises), index 0 = set 1 */
   set_reps: (number | null)[];
+  /** Reps per set from the last time this exercise was logged elsewhere, as hints */
+  last_set_reps: (number | null)[];
   /** How to do it, read live from the exercise */
   description: string;
   cues: string[];
@@ -757,7 +759,7 @@ export function getSession(id: number): Session | null {
               seconds, notes, exercise_id, ladder_id, rung, weighted, timed, to_failure
        FROM session_items WHERE session_id = ? ORDER BY position`
     )
-    .all(id) as Omit<SessionItem, "set_reps" | "description" | "cues">[];
+    .all(id) as Omit<SessionItem, "set_reps" | "last_set_reps" | "description" | "cues">[];
   const guides = getGuides([...new Set(items.map((i) => i.exercise_id).filter((e): e is string => !!e))]);
   const sets = workoutDb
     .prepare(
@@ -773,9 +775,31 @@ export function getSession(id: number): Session | null {
         .filter((s) => s.session_item_id === item.id && s.set_number <= setReps.length)
         .forEach((s) => (setReps[s.set_number - 1] = s.reps));
       const guide = (item.exercise_id && guides.get(item.exercise_id)) || { description: "", cues: [] };
-      return { ...item, set_reps: setReps, ...guide };
+      const lastSetReps: (number | null)[] = Array(totalSets(item)).fill(null);
+      if (item.to_failure && item.exercise_id) {
+        lastSetRepsFor(item.exercise_id, session.id)
+          .filter((r) => r.set_number <= lastSetReps.length)
+          .forEach((r) => (lastSetReps[r.set_number - 1] = r.reps));
+      }
+      return { ...item, set_reps: setReps, last_set_reps: lastSetReps, ...guide };
     }),
   };
+}
+
+/** The sets logged the most recent other time this exercise had reps recorded */
+function lastSetRepsFor(exerciseId: string, excludeSessionId: number): { set_number: number; reps: number }[] {
+  const item = workoutDb
+    .prepare(
+      `SELECT i.id FROM session_items i JOIN sessions s ON s.id = i.session_id
+       WHERE i.exercise_id = ? AND s.id != ?
+         AND EXISTS (SELECT 1 FROM session_sets ss WHERE ss.session_item_id = i.id)
+       ORDER BY s.date DESC, s.id DESC LIMIT 1`
+    )
+    .get(exerciseId, excludeSessionId) as { id: number } | undefined;
+  if (!item) return [];
+  return workoutDb
+    .prepare("SELECT set_number, reps FROM session_sets WHERE session_item_id = ? ORDER BY set_number")
+    .all(item.id) as { set_number: number; reps: number }[];
 }
 
 export function findSession(sequenceId: string, date: string): number | null {
@@ -793,11 +817,22 @@ export const createSession = workoutDb.transaction((sequence: ResolvedSequence, 
     `INSERT INTO session_items
        (session_id, position, name, cue, label, target_sets, target_reps, target_reps_max, target_seconds,
         target_seconds_max, target_weight, unit, per_side, extra_side, exercise_id, ladder_id, rung,
-        weighted, timed, to_failure)
+        weighted, timed, to_failure, weight, seconds)
      VALUES (@session_id, @position, @name, @cue, @label, @sets, @reps, @reps_max, @seconds,
         @seconds_max, @weight, @unit, @per_side, @extra_side, @exercise_id, @ladder_id, @rung,
-        @weighted, @timed, @to_failure)`
+        @weighted, @timed, @to_failure, @last_weight, @last_seconds)`
   );
+  // Start from what was entered the last time this exercise was done, in any sequence
+  const last = (column: "weight" | "seconds", exerciseId: string): number | null =>
+    (
+      workoutDb
+        .prepare(
+          `SELECT i.${column} AS value FROM session_items i JOIN sessions s ON s.id = i.session_id
+           WHERE i.exercise_id = ? AND i.${column} IS NOT NULL AND s.id != ?
+           ORDER BY s.date DESC, s.id DESC LIMIT 1`
+        )
+        .get(exerciseId, lastInsertRowid) as { value: number } | undefined
+    )?.value ?? null;
   sequence.items.forEach((item, position) => {
     insertItem.run({
       session_id: lastInsertRowid,
@@ -820,6 +855,8 @@ export const createSession = workoutDb.transaction((sequence: ResolvedSequence, 
       weighted: item.weighted ? 1 : 0,
       timed: item.timed ? 1 : 0,
       to_failure: item.toFailure ? 1 : 0,
+      last_weight: item.weighted ? last("weight", item.exerciseId) : null,
+      last_seconds: item.timed ? last("seconds", item.exerciseId) : null,
     });
   });
   return Number(lastInsertRowid);
