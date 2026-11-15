@@ -732,8 +732,50 @@ function openDaySheet(day: WeekDay, sequences: Sequence[]): void {
 
 // --- Sequence preview ---
 
-function rungChip(rung: number, count: number): string {
-  return count > 1 ? `<span class="rung-chip">Rung ${rung}/${count}</span>` : "";
+/** On the preview, the rung chip opens the ladder so you can pick today's rung */
+function rungChip(item: SequenceItem): string {
+  if (item.rungCount < 2) return "";
+  return `<button class="rung-chip ladder-open" data-ladder="${escapeHtml(item.ladderId)}">Rung ${item.rung}/${item.rungCount} ▸</button>`;
+}
+
+function openLadderSheet(ladder: Ladder, exercises: Exercise[], onChange: () => void): void {
+  const nameOf = (id: string) => exercises.find((e) => e.id === id)?.name ?? id;
+  const rows = ladder.rungs
+    .map((r, i) => {
+      const n = i + 1;
+      return `
+      <button class="rung-option${n === ladder.currentRung ? " current" : ""}" data-rung="${n}">
+        <span class="rung-number">${n}</span>
+        <span class="rung-body">
+          <span class="rung-name">${escapeHtml(nameOf(r.exerciseId))}</span>
+          <span class="rung-target">${rungTarget(r, { extraSide: ladder.extraSide })}</span>
+          ${n === ladder.currentRung ? `<span class="rung-note">current</span>` : ""}
+        </span>
+      </button>`;
+    })
+    .join("");
+  openSheet(
+    `${ladder.name} ladder`,
+    `<p class="sheet-label">Move up when you hit the top of the range two sessions in a row with good position.</p>
+     <div class="rungs">${rows}</div>`,
+    (sheet, close) => {
+      sheet.querySelectorAll<HTMLButtonElement>("[data-rung]").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const rung = Number(btn.dataset.rung);
+          if (rung === ladder.currentRung) return close();
+          btn.disabled = true;
+          try {
+            await api(`/ladders/${ladder.id}/rung`, { method: "PUT", body: JSON.stringify({ rung }) });
+            close();
+            onChange();
+          } catch {
+            btn.disabled = false;
+            alert("Couldn't change the rung. Check your connection.");
+          }
+        });
+      });
+    }
+  );
 }
 
 async function renderPreview(sequenceId: string): Promise<void> {
@@ -759,7 +801,7 @@ async function renderPreview(sequenceId: string): Promise<void> {
         ${item.label ? `<span class="label-tag">${escapeHtml(item.label)}</span>` : ""}
         <span class="preview-name">${escapeHtml(item.name)}</span>
         ${target ? `<span class="target">${target}</span>` : ""}
-        ${rungChip(item.rung, item.rungCount)}
+        ${rungChip(item)}
         ${item.cue ? `<span class="cue">${escapeHtml(item.cue)}</span>` : ""}
       </li>`;
     })
@@ -776,6 +818,30 @@ async function renderPreview(sequenceId: string): Promise<void> {
     <ol class="preview sticker">${rows}</ol>
     <button id="start" class="start sticker">Start</button>
   `;
+
+  // Picking a rung updates the preview, so Start gives exactly what's shown
+  app.querySelectorAll<HTMLButtonElement>(".ladder-open").forEach((chip) => {
+    chip.addEventListener("click", async () => {
+      chip.disabled = true;
+      try {
+        const [{ ladders }, { exercises }] = await Promise.all([
+          api<{ ladders: Ladder[] }>("/ladders"),
+          api<{ exercises: Exercise[] }>("/exercises"),
+        ]);
+        const ladder = ladders.find((l) => l.id === chip.dataset.ladder);
+        if (ladder) {
+          openLadderSheet(ladder, exercises, async () => {
+            const y = scrollY;
+            await renderPreview(sequenceId);
+            scrollTo(0, y);
+          });
+        }
+      } catch {
+        alert("Couldn't load the ladder. Check your connection.");
+      }
+      chip.disabled = false;
+    });
+  });
 
   const startBtn = document.getElementById("start") as HTMLButtonElement;
   startBtn.addEventListener("click", async () => {
@@ -832,11 +898,11 @@ function renderGuide(item: SessionItem): string {
     </details>`;
 }
 
+/** Which rung this workout uses; rungs are picked on the preview before starting */
 function ladderChip(item: SessionItem, ladders: Map<string, Ladder>): string {
   const ladder = item.ladder_id ? ladders.get(item.ladder_id) : undefined;
   if (!ladder || ladder.rungs.length < 2 || item.rung === null) return "";
-  const next = ladder.currentRung !== item.rung ? ` · next: ${ladder.currentRung}` : "";
-  return `<button class="rung-chip ladder-open">Rung ${item.rung}/${ladder.rungs.length}${next} ▸</button>`;
+  return `<span class="rung-chip">Rung ${item.rung}/${ladder.rungs.length}</span>`;
 }
 
 function renderItem(item: SessionItem, ladders: Map<string, Ladder>): string {
@@ -904,56 +970,6 @@ function renderFinish(session: Session): string {
 function autoGrow(el: HTMLTextAreaElement): void {
   el.style.height = "auto";
   el.style.height = `${el.scrollHeight}px`;
-}
-
-function openLadderSheet(item: SessionItem, ladder: Ladder, onChange: () => void): void {
-  const rows = ladder.rungs
-    .map((r, i) => {
-      const n = i + 1;
-      const notes = [n === ladder.currentRung ? "current" : "", n === item.rung ? "this workout" : ""]
-        .filter(Boolean)
-        .join(" · ");
-      return `
-      <button class="rung-option${n === ladder.currentRung ? " current" : ""}" data-rung="${n}">
-        <span class="rung-number">${n}</span>
-        <span class="rung-body">
-          <span class="rung-name" data-exercise="${escapeHtml(r.exerciseId)}">${escapeHtml(r.exerciseId)}</span>
-          <span class="rung-target">${rungTarget(r, { extraSide: ladder.extraSide })}</span>
-          ${notes ? `<span class="rung-note">${notes}</span>` : ""}
-        </span>
-      </button>`;
-    })
-    .join("");
-  openSheet(
-    `${ladder.name} ladder`,
-    `<p class="sheet-label">Move up when you hit the top of the range two sessions in a row with good
-       position. Changes apply from your next session.</p>
-     <div class="rungs">${rows}</div>`,
-    (sheet, close) => {
-      // Fill in exercise names
-      api<{ exercises: Exercise[] }>("/exercises")
-        .then(({ exercises }) => {
-          sheet.querySelectorAll<HTMLElement>("[data-exercise]").forEach((el) => {
-            el.textContent = exercises.find((e) => e.id === el.dataset.exercise)?.name ?? el.textContent;
-          });
-        })
-        .catch(() => {});
-      sheet.querySelectorAll<HTMLButtonElement>("[data-rung]").forEach((btn) => {
-        btn.addEventListener("click", async () => {
-          const rung = Number(btn.dataset.rung);
-          if (rung === ladder.currentRung) return close();
-          btn.disabled = true;
-          if (await save(`/ladders/${ladder.id}/rung`, { rung }, "PUT")) {
-            ladder.currentRung = rung;
-            close();
-            onChange();
-          } else {
-            btn.disabled = false;
-          }
-        });
-      });
-    }
-  );
 }
 
 async function renderSession(id: number): Promise<void> {
@@ -1047,15 +1063,6 @@ async function renderSession(id: number): Promise<void> {
       else if (!wasDone && isDone(item)) confetti(card);
       wrapped = nowWrapped;
     };
-
-    // The chip opens the ladder; picking a rung updates the chip's "next" note
-    card.addEventListener("click", (e) => {
-      if (!(e.target as HTMLElement).closest(".ladder-open")) return;
-      const ladder = ladders.get(item.ladder_id!)!;
-      openLadderSheet(item, ladder, () => {
-        card.querySelector(".ladder-open")!.outerHTML = ladderChip(item, ladders);
-      });
-    });
 
     // Tapping the last finished set undoes it; tapping any other set fills up to it
     card.querySelectorAll<HTMLButtonElement>(".set").forEach((btn) => {
