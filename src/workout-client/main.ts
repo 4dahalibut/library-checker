@@ -1142,6 +1142,10 @@ async function renderSession(id: number): Promise<void> {
         document.getElementById("finish-area")!.innerHTML = renderFinish(session);
         updateProgress(session);
         bindFinish();
+        // A beat to see the stamp and confetti, then home
+        setTimeout(() => {
+          if (location.hash === `#session-${session.id}`) location.hash = "";
+        }, 900);
       } else {
         btn.disabled = false;
       }
