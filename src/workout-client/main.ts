@@ -461,9 +461,6 @@ async function renderHome(): Promise<void> {
     })
     .join("");
 
-  // Undo works on the whole week, so a session moved between two days can't get lost
-  const changedDays = week.days.filter((d) => d.changed);
-
   const history = sessions.length
     ? sessions
         .map((s) => {
@@ -489,7 +486,6 @@ async function renderHome(): Promise<void> {
     <section>
       <h2 id="week-heading">${weekOpen ? "This week" : "Today"}</h2>
       <div class="week-list sticker${weekOpen ? "" : " collapsed"}">${rows}</div>
-      ${changedDays.length ? `<div class="week-links"><button id="reset-week" class="link-button">Undo this week's changes</button></div>` : ""}
     </section>
     <section>
       <h2>Log</h2>
@@ -522,23 +518,16 @@ async function renderHome(): Promise<void> {
     });
   });
 
-  document.getElementById("reset-week")?.addEventListener("click", async () => {
-    try {
-      await Promise.all(changedDays.map((d) => api(`/days/${d.date}`, { method: "DELETE" })));
-    } catch {
-      alert("Couldn't undo everything. Check your connection.");
-    }
-    renderHome();
-  });
 
-  // Tapping a day's label opens or folds the rest of the week
+  // Tapping a day's blank space opens or folds the rest of the week;
+  // sessions still open and the pencil still edits
   const weekList = app.querySelector<HTMLElement>(".week-list")!;
-  app.querySelectorAll<HTMLButtonElement>(".week-day").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      weekOpen = !weekOpen;
-      weekList.classList.toggle("collapsed", !weekOpen);
-      document.getElementById("week-heading")!.textContent = weekOpen ? "This week" : "Today";
-    });
+  weekList.addEventListener("click", (e) => {
+    const target = e.target as HTMLElement;
+    if (!target.closest(".week-row") || target.closest(".session-pill, .week-edit")) return;
+    weekOpen = !weekOpen;
+    weekList.classList.toggle("collapsed", !weekOpen);
+    document.getElementById("week-heading")!.textContent = weekOpen ? "This week" : "Today";
   });
 
   app.querySelectorAll<HTMLButtonElement>(".week-edit").forEach((btn) => {
@@ -689,55 +678,86 @@ document.addEventListener(
   { passive: false }
 );
 
-/** Remove or add sessions on one day (moving is done by dragging) */
+/**
+ * Remove or add sessions on one day (moving is done by dragging). The sheet stays
+ * open and updates in place, with the week refreshing behind it.
+ */
 function openDaySheet(day: WeekDay, sequences: Sequence[]): void {
-  const planItems = (): PlanItem[] => day.items.map((i) => ({ sequenceId: i.sequenceId, optional: i.optional }));
-  const editable = day.items.filter((i) => !i.session);
-  const rows = editable
-    .map(
-      (item) => `
-        <div class="edit-item">
-          <span class="edit-name">${escapeHtml(item.name)}</span>
-          <button class="remove-session" data-remove="${escapeHtml(item.sequenceId)}">Remove</button>
-        </div>`
-    )
-    .join("");
+  // The day's plan, kept here so several changes in a row build on each other
+  const items = day.items.map((i) => ({
+    sequenceId: i.sequenceId,
+    optional: i.optional,
+    name: i.name,
+    started: !!i.session,
+  }));
   const options = sequences
     .map((s) => `<button class="sheet-option" data-add="${escapeHtml(s.id)}">${escapeHtml(s.name)}</button>`)
     .join("");
 
   openSheet(
     dayTitle(day),
-    `${rows}
+    `<div class="edit-items"></div>
      <p class="sheet-label">To move a session, hold it in the week and drag it to another day.</p>
      <p class="sheet-label add-label">Add a session</p>
      <div class="sheet-options">${options}</div>`,
-    (sheet, close) => {
-      const run = async (el: HTMLButtonElement, items: PlanItem[], failure: string) => {
-        el.disabled = true;
+    (sheet) => {
+      const list = sheet.querySelector<HTMLElement>(".edit-items")!;
+      let busy = false;
+
+      const save = async (next: typeof items, failure: string): Promise<boolean> => {
+        if (busy) return false;
+        busy = true;
         try {
-          await api(`/days/${day.date}`, { method: "PUT", body: JSON.stringify({ items }) });
-          close();
+          const plan: PlanItem[] = next.map(({ sequenceId, optional }) => ({ sequenceId, optional }));
+          await api(`/days/${day.date}`, { method: "PUT", body: JSON.stringify({ items: plan }) });
+          items.splice(0, items.length, ...next);
+          renderList();
           renderHome();
+          return true;
         } catch {
-          el.disabled = false;
           alert(failure);
+          return false;
+        } finally {
+          busy = false;
         }
       };
-      sheet.querySelectorAll<HTMLButtonElement>("[data-remove]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const items = planItems();
-          items.splice(
-            items.findIndex((i) => i.sequenceId === btn.dataset.remove),
-            1
-          );
-          run(btn, items, "Couldn't remove it. Check your connection.");
+
+      const renderList = () => {
+        // Sessions already begun stay put
+        const editable = items.map((item, index) => ({ item, index })).filter(({ item }) => !item.started);
+        list.innerHTML = editable.length
+          ? editable
+              .map(
+                ({ item, index }) => `
+            <div class="edit-item">
+              <span class="edit-name">${escapeHtml(item.name)}</span>
+              <button class="remove-session" data-remove="${index}">Remove</button>
+            </div>`
+              )
+              .join("")
+          : `<p class="sheet-label">Nothing planned to remove.</p>`;
+        list.querySelectorAll<HTMLButtonElement>("[data-remove]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            btn.disabled = true;
+            save(
+              items.filter((_, i) => i !== Number(btn.dataset.remove)),
+              "Couldn't remove it. Check your connection."
+            ).then((ok) => {
+              if (!ok) btn.disabled = false;
+            });
+          });
         });
-      });
+      };
+      renderList();
+
       sheet.querySelectorAll<HTMLButtonElement>("[data-add]").forEach((opt) => {
-        opt.addEventListener("click", () =>
-          run(opt, [...planItems(), { sequenceId: opt.dataset.add! }], "Couldn't add it. Check your connection.")
-        );
+        opt.addEventListener("click", () => {
+          const seq = sequences.find((s) => s.id === opt.dataset.add)!;
+          save(
+            [...items, { sequenceId: seq.id, optional: false, name: seq.name, started: false }],
+            "Couldn't add it. Check your connection."
+          );
+        });
       });
     }
   );

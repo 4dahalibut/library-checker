@@ -258,10 +258,6 @@ h2 {
   display: none;
 }
 
-.week-list.collapsed + .week-links {
-  display: none;
-}
-
 .week-chevron {
   display: inline-block;
   margin-left: 4px;
@@ -411,13 +407,6 @@ a.session-pill:active {
   background: var(--field);
 }
 
-.week-links {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 4px 12px;
-  margin-top: 8px;
-}
 
 .link-button {
   font-size: 0.92rem;
