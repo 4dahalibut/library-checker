@@ -98,8 +98,14 @@ interface SessionItem {
   to_failure: number;
   set_reps: (number | null)[];
   last_set_reps: (number | null)[];
+  last_note: PastNote | null;
   description: string;
   cues: string[];
+}
+
+interface PastNote {
+  date: string;
+  text: string;
 }
 
 interface Session {
@@ -109,6 +115,7 @@ interface Session {
   date: string;
   notes: string;
   finished_at: string | null;
+  last_session_note: PastNote | null;
   items: SessionItem[];
 }
 
@@ -920,6 +927,16 @@ function renderSetButtons(item: SessionItem): string {
   ).join("");
 }
 
+/** A note from an earlier session, shown above where today's goes */
+function pastNote(label: string, note: PastNote | null): string {
+  if (!note) return "";
+  return `
+    <div class="past-note">
+      <span class="past-note-label">${escapeHtml(label)} · ${formatDate(note.date)}</span>
+      <p class="past-note-text">${escapeHtml(note.text)}</p>
+    </div>`;
+}
+
 /** Long or open-ended times (a dance session, a 10 min warm-up) are entered in minutes */
 function inMinutes(item: SessionItem): boolean {
   return item.target_seconds === null || item.target_seconds >= 60;
@@ -982,6 +999,7 @@ function renderItem(item: SessionItem, ladders: Map<string, Ladder>): string {
             : ""
         }
       </div>
+      ${pastNote("Last time", item.last_note)}
       <textarea id="notes-${item.id}" data-field="notes" rows="1" placeholder="Notes">${escapeHtml(item.notes)}</textarea>
     </article>`;
 }
@@ -1047,6 +1065,7 @@ async function renderSession(id: number): Promise<void> {
     <div class="exercises">${session.items.map((i) => renderItem(i, ladders)).join("")}</div>
     <section class="session-notes">
       <h2>Session notes</h2>
+      ${pastNote(`Last ${session.sequence_name}`, session.last_session_note)}
       <textarea id="session-notes" rows="3" placeholder="How it felt, anything else you did">${escapeHtml(session.notes)}</textarea>
     </section>
     <div id="finish-area">${renderFinish(session)}</div>

@@ -683,6 +683,36 @@ button.rung-chip:active {
   color: var(--pop);
 }
 
+/* --- Notes from earlier sessions --- */
+
+.past-note {
+  background: var(--field);
+  border-left: 4px solid var(--sun);
+  border-radius: 4px 12px 12px 4px;
+  padding: 8px 12px;
+}
+
+.session-notes .past-note {
+  margin-bottom: 10px;
+}
+
+.past-note-label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.past-note-text {
+  margin-top: 3px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
 /* --- Finish --- */
 
 .finished-row {
