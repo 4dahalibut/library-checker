@@ -509,10 +509,7 @@ function heroCard(): string {
   return `
     <figure class="hero">
       <img class="hero-face" src="${hero.face}" alt="${escapeHtml(hero.name)}" width="96" height="96" />
-      <figcaption>
-        <span class="hero-label">Hero of the day</span>
-        <span class="hero-name">${escapeHtml(hero.name)}</span>
-      </figcaption>
+      <figcaption class="hero-name">${escapeHtml(hero.name)}</figcaption>
     </figure>`;
 }
 

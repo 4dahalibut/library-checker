@@ -154,19 +154,7 @@ h2 {
   transform: rotate(-6deg);
 }
 
-.hero figcaption {
-  display: grid;
-  gap: 1px;
-  line-height: 1.15;
-}
 
-.hero-label {
-  font-size: 0.62rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--muted);
-}
 
 .hero-name {
   font-family: var(--display);
