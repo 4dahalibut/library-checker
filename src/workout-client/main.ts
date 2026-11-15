@@ -457,23 +457,6 @@ async function renderHome(): Promise<void> {
     })
     .join("");
 
-  const progress = week.progress
-    .map((p) => {
-      const met = p.done >= p.target;
-      return `<span class="goal${met ? " met" : ""}">${escapeHtml(p.name)} <b>${p.done}/${p.target}</b></span>`;
-    })
-    .join("");
-
-  const short = week.progress
-    .filter((p) => p.minimum !== null && p.done < p.minimum)
-    .map((p) => `${p.minimum! - p.done} more ${escapeHtml(p.name)}`);
-  const minimumLine =
-    week.minimumMet === null
-      ? ""
-      : `<p class="minimum${week.minimumMet ? " met" : ""}">Busy-week minimum ${
-          week.minimumMet ? "met ✓" : `· ${short.join(", ")}`
-        }</p>`;
-
   // Undo works on the whole week, so a session moved between two days can't get lost
   const changedDays = week.days.filter((d) => d.changed);
 
@@ -503,8 +486,6 @@ async function renderHome(): Promise<void> {
       <h2>This week</h2>
       <div class="week-list sticker">${rows}</div>
       ${changedDays.length ? `<div class="week-links"><button id="reset-week" class="link-button">Undo this week's changes</button></div>` : ""}
-      <div class="goals">${progress}</div>
-      ${minimumLine}
     </section>
     <section>
       <h2>Log</h2>

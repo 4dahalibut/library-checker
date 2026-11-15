@@ -386,48 +386,6 @@ a.session-pill:active {
   margin-top: 8px;
 }
 
-.goals {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.goal {
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: var(--muted);
-  background: var(--card);
-  border: 2px solid var(--ink);
-  border-radius: 999px;
-  padding: 4px 11px;
-}
-
-.goal b {
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-}
-
-.goal.met {
-  background: var(--done);
-  color: var(--done-ink);
-}
-
-.goal.met b {
-  color: var(--done-ink);
-}
-
-.minimum {
-  margin-top: 10px;
-  font-size: 0.88rem;
-  font-weight: 700;
-  color: var(--muted);
-}
-
-.minimum.met {
-  color: var(--done-ink);
-}
-
 .link-button {
   font-size: 0.92rem;
   font-weight: 800;
