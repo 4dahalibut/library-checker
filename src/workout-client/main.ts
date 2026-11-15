@@ -370,6 +370,10 @@ function openSheet(title: string, body: string, onOpen: (sheet: HTMLElement, clo
 
 // --- Home ---
 
+const TRASH_ICON = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none"
+  stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>`;
+
 let selectedDate = localToday();
 
 function itemStatus(item: { optional?: boolean; session: WeekItem["session"] }, isPast: boolean): string {
@@ -496,11 +500,14 @@ async function renderHome(): Promise<void> {
         .map((s) => {
           const skipped = s.skipped ? `, ${s.skipped} skipped` : "";
           return `
-        <a class="history-row${s.finished_at ? " complete" : ""}" href="#session-${s.id}">
-          <span class="history-date">${formatDate(s.date)}</span>
-          <span class="history-name">${escapeHtml(s.sequence_name)}</span>
-          <span class="history-count">${s.done}/${s.total}${skipped}</span>
-        </a>`;
+        <div class="log-row">
+          <a class="history-row${s.finished_at ? " complete" : ""}" href="#session-${s.id}">
+            <span class="history-date">${formatDate(s.date)}</span>
+            <span class="history-name">${escapeHtml(s.sequence_name)}</span>
+            <span class="history-count">${s.done}/${s.total}${skipped}</span>
+          </a>
+          <button class="log-trash" data-delete="${s.id}" aria-label="Delete ${escapeHtml(s.sequence_name)} on ${formatDate(s.date)}">${TRASH_ICON}</button>
+        </div>`;
         })
         .join("")
     : `<p class="empty">Nothing yet. Your first workout will land here.</p>`;
@@ -527,10 +534,35 @@ async function renderHome(): Promise<void> {
       <div class="sequences">${sequenceCards}</div>
     </section>
     <section>
-      <h2>Recent</h2>
+      <h2>Log</h2>
       ${sessions.length ? `<div class="history sticker">${history}</div>` : history}
     </section>
   `;
+
+  // Two taps to delete, like inside a session
+  app.querySelectorAll<HTMLButtonElement>(".log-trash").forEach((btn) => {
+    let timer = 0;
+    btn.addEventListener("click", async () => {
+      if (!btn.classList.contains("armed")) {
+        btn.classList.add("armed");
+        btn.textContent = "Delete?";
+        timer = window.setTimeout(() => {
+          btn.classList.remove("armed");
+          btn.innerHTML = TRASH_ICON;
+        }, 3000);
+        return;
+      }
+      clearTimeout(timer);
+      btn.disabled = true;
+      try {
+        await api(`/sessions/${btn.dataset.delete}`, { method: "DELETE" });
+        renderHome();
+      } catch {
+        btn.disabled = false;
+        alert("Couldn't delete it. Check your connection.");
+      }
+    });
+  });
 
   app.querySelectorAll<HTMLButtonElement>(".day").forEach((btn) => {
     btn.addEventListener("click", () => {
