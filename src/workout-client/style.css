@@ -654,6 +654,60 @@ button.rung-chip:active {
   font-weight: 700;
 }
 
+/* --- Form cues --- */
+
+.guide summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.guide summary span {
+  text-decoration: underline wavy var(--pop);
+  text-underline-offset: 4px;
+}
+
+.guide summary::-webkit-details-marker {
+  display: none;
+}
+
+.guide summary::before {
+  content: "▸";
+  display: inline-block;
+  transition: transform 0.15s;
+}
+
+.guide[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.guide-description {
+  margin-top: 8px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.guide-cues {
+  margin: 8px 0 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 5px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.guide-cues li::marker {
+  color: var(--pop);
+}
+
 /* --- Finish --- */
 
 .finished-row {

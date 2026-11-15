@@ -97,6 +97,8 @@ interface SessionItem {
   timed: number;
   to_failure: number;
   set_reps: (number | null)[];
+  description: string;
+  cues: string[];
 }
 
 interface Session {
@@ -837,6 +839,17 @@ function renderSetButtons(item: SessionItem): string {
   ).join("");
 }
 
+/** Description and form cues, folded away until wanted */
+function renderGuide(item: SessionItem): string {
+  if (!item.description && !item.cues.length) return "";
+  return `
+    <details class="guide">
+      <summary><span>Form cues</span></summary>
+      ${item.description ? `<p class="guide-description">${escapeHtml(item.description)}</p>` : ""}
+      ${item.cues.length ? `<ul class="guide-cues">${item.cues.map((c) => `<li>${escapeHtml(c)}</li>`).join("")}</ul>` : ""}
+    </details>`;
+}
+
 function ladderChip(item: SessionItem, ladders: Map<string, Ladder>): string {
   const ladder = item.ladder_id ? ladders.get(item.ladder_id) : undefined;
   if (!ladder || ladder.rungs.length < 2 || item.rung === null) return "";
@@ -863,6 +876,7 @@ function renderItem(item: SessionItem, ladders: Map<string, Ladder>): string {
         </div>
         <button class="skip">${item.skipped ? "Unskip" : "Skip"}</button>
       </div>
+      ${renderGuide(item)}
       <div class="sets">${renderSetButtons(item)}</div>
       <div class="inputs">
         ${

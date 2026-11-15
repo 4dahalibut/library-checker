@@ -257,6 +257,19 @@ const MIGRATIONS: (() => void)[] = [
       );
     `);
   },
+
+  // 3: how to do each exercise: a description and an ordered list of form cues
+  () => {
+    workoutDb.exec(`
+      ALTER TABLE exercises ADD COLUMN description TEXT NOT NULL DEFAULT '';
+      CREATE TABLE exercise_cues (
+        exercise_id TEXT NOT NULL REFERENCES exercises(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL CHECK (position >= 0),
+        text TEXT NOT NULL CHECK (length(trim(text)) > 0),
+        PRIMARY KEY (exercise_id, position)
+      );
+    `);
+  },
 ];
 
 function migrate(): void {
@@ -283,11 +296,47 @@ function toExercise(r: ExerciseRow): Exercise {
   return { id: r.id, name: r.name, weighted: !!r.weighted, timed: !!r.timed, toFailure: !!r.to_failure };
 }
 
-export function listExercises(): Exercise[] {
+export interface ExerciseGuide {
+  description: string;
+  cues: string[];
+}
+
+export function listExercises(): (Exercise & ExerciseGuide)[] {
   const rows = workoutDb
-    .prepare("SELECT id, name, weighted, timed, to_failure FROM exercises ORDER BY name")
-    .all() as ExerciseRow[];
-  return rows.map(toExercise);
+    .prepare("SELECT id, name, weighted, timed, to_failure, description FROM exercises ORDER BY name")
+    .all() as (ExerciseRow & { description: string })[];
+  const guides = getGuides(rows.map((r) => r.id));
+  return rows.map((r) => ({ ...toExercise(r), ...guides.get(r.id)! }));
+}
+
+/** Descriptions and cues for these exercises (empty for unknown ids) */
+export function getGuides(ids: string[]): Map<string, ExerciseGuide> {
+  const guides = new Map<string, ExerciseGuide>(ids.map((id) => [id, { description: "", cues: [] }]));
+  if (!ids.length) return guides;
+  const marks = ids.map(() => "?").join(", ");
+  for (const r of workoutDb
+    .prepare(`SELECT id, description FROM exercises WHERE id IN (${marks})`)
+    .all(...ids) as { id: string; description: string }[]) {
+    guides.get(r.id)!.description = r.description;
+  }
+  for (const r of workoutDb
+    .prepare(`SELECT exercise_id, text FROM exercise_cues WHERE exercise_id IN (${marks}) ORDER BY exercise_id, position`)
+    .all(...ids) as { exercise_id: string; text: string }[]) {
+    guides.get(r.exercise_id)!.cues.push(r.text);
+  }
+  return guides;
+}
+
+/** Replace an exercise's description and cues */
+export function saveGuide(id: string, guide: ExerciseGuide): void {
+  workoutDb.transaction(() => {
+    workoutDb
+      .prepare("UPDATE exercises SET description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+      .run(guide.description, id);
+    workoutDb.prepare("DELETE FROM exercise_cues WHERE exercise_id = ?").run(id);
+    const insert = workoutDb.prepare("INSERT INTO exercise_cues (exercise_id, position, text) VALUES (?, ?, ?)");
+    guide.cues.forEach((text, i) => insert.run(id, i, text));
+  })();
 }
 
 /** Insert or replace every field of an exercise */
@@ -658,6 +707,9 @@ export interface SessionItem {
   to_failure: number;
   /** Reps reached per set (to-failure exercises), index 0 = set 1 */
   set_reps: (number | null)[];
+  /** How to do it, read live from the exercise */
+  description: string;
+  cues: string[];
 }
 
 export interface Session {
@@ -705,7 +757,8 @@ export function getSession(id: number): Session | null {
               seconds, notes, exercise_id, ladder_id, rung, weighted, timed, to_failure
        FROM session_items WHERE session_id = ? ORDER BY position`
     )
-    .all(id) as Omit<SessionItem, "set_reps">[];
+    .all(id) as Omit<SessionItem, "set_reps" | "description" | "cues">[];
+  const guides = getGuides([...new Set(items.map((i) => i.exercise_id).filter((e): e is string => !!e))]);
   const sets = workoutDb
     .prepare(
       `SELECT ss.session_item_id, ss.set_number, ss.reps FROM session_sets ss
@@ -719,7 +772,8 @@ export function getSession(id: number): Session | null {
       sets
         .filter((s) => s.session_item_id === item.id && s.set_number <= setReps.length)
         .forEach((s) => (setReps[s.set_number - 1] = s.reps));
-      return { ...item, set_reps: setReps };
+      const guide = (item.exercise_id && guides.get(item.exercise_id)) || { description: "", cues: [] };
+      return { ...item, set_reps: setReps, ...guide };
     }),
   };
 }

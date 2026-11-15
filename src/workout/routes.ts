@@ -6,6 +6,7 @@ import {
   workoutDb,
   listExercises,
   saveExercise,
+  saveGuide,
   unknownExercises,
   listSequences,
   getSequence,
@@ -204,6 +205,29 @@ workoutRouter.put("/api/ladders/:id/rung", (req, res) => {
 });
 
 // --- Sequences ---
+
+// How to do an exercise: a description and an ordered list of cues (full replace)
+workoutRouter.put("/api/exercises/:id/guide", requireAdmin, (req, res) => {
+  const { description, cues } = req.body ?? {};
+  if (unknownExercises([req.params.id]).length) {
+    res.status(404).json({ error: "Unknown exercise" });
+    return;
+  }
+  if (typeof description !== "string" || description.length > 2000) {
+    res.status(400).json({ error: "description must be text" });
+    return;
+  }
+  if (
+    !Array.isArray(cues) ||
+    cues.length > 30 ||
+    !cues.every((c) => typeof c === "string" && c.trim().length > 0 && c.length <= 500)
+  ) {
+    res.status(400).json({ error: "cues must be a list of non-empty text" });
+    return;
+  }
+  saveGuide(req.params.id, { description: description.trim(), cues: cues.map((c: string) => c.trim()) });
+  res.json({ success: true });
+});
 
 workoutRouter.get("/api/sequences", (_req, res) => {
   res.json({ sequences: listSequences() });
