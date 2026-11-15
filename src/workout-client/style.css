@@ -522,20 +522,6 @@ a.session-pill:active {
   margin-top: 16px;
 }
 
-a.sheet-option {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  color: var(--ink);
-  text-decoration: none;
-}
-
-.option-meta {
-  font-family: var(--body);
-  font-size: 0.85rem;
-  font-weight: 800;
-  color: var(--muted);
-}
 
 .sheet-options {
   display: grid;

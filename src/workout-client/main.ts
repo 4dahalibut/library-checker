@@ -498,10 +498,7 @@ async function renderHome(): Promise<void> {
     <section>
       <h2>This week</h2>
       <div class="week-list sticker">${rows}</div>
-      <div class="week-links">
-        <button id="start-other" class="link-button">Start something else</button>
-        ${changedDays.length ? `<button id="reset-week" class="link-button">Undo this week's changes</button>` : ""}
-      </div>
+      ${changedDays.length ? `<div class="week-links"><button id="reset-week" class="link-button">Undo this week's changes</button></div>` : ""}
       <div class="goals">${progress}</div>
       ${minimumLine}
     </section>
@@ -533,21 +530,6 @@ async function renderHome(): Promise<void> {
         btn.disabled = false;
         alert("Couldn't delete it. Check your connection.");
       }
-    });
-  });
-
-  // Anything not on the plan: today's session if it's begun, otherwise its preview
-  document.getElementById("start-other")!.addEventListener("click", () => {
-    const options = sequences
-      .map((seq) => {
-        const started = sessions.find((s) => s.sequence_id === seq.id && s.date === today);
-        const href = started ? `#session-${started.id}` : `#sequence-${encodeURIComponent(seq.id)}`;
-        const meta = started ? (started.finished_at ? "Finished ✓" : `${started.done}/${started.total}`) : "";
-        return `<a class="sheet-option" href="${href}">${escapeHtml(seq.name)}${meta ? ` <span class="option-meta">${meta}</span>` : ""}</a>`;
-      })
-      .join("");
-    openSheet("Start something else", `<div class="sheet-options">${options}</div>`, (sheet, close) => {
-      sheet.querySelectorAll("a").forEach((a) => a.addEventListener("click", close));
     });
   });
 
