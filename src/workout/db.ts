@@ -114,6 +114,30 @@ const MIGRATIONS: (() => void)[] = [
       WHERE exercise_id IS NULL;
     `);
   },
+
+  // 2: weekly goals, day pins, and an explicit Finish on sessions
+  () => {
+    workoutDb.exec(`
+      -- Only finished sessions count toward goals
+      ALTER TABLE sessions ADD COLUMN finished_at TEXT;
+      CREATE INDEX sessions_date ON sessions(date);
+
+      CREATE TABLE weekly_goals (
+        sequence_id TEXT PRIMARY KEY REFERENCES sequences(id) ON DELETE CASCADE,
+        per_week INTEGER NOT NULL CHECK (per_week BETWEEN 1 AND 14)
+      );
+
+      -- A day fixed by hand: a sequence, or rest when sequence_id is NULL.
+      -- Days without a pin are planned automatically from what's left of the goals.
+      CREATE TABLE day_pins (
+        date TEXT PRIMARY KEY CHECK (date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+        sequence_id TEXT REFERENCES sequences(id) ON DELETE CASCADE
+      );
+
+      INSERT INTO weekly_goals (sequence_id, per_week)
+        SELECT id, CASE id WHEN 'main' THEN 3 ELSE 2 END FROM sequences WHERE id IN ('main', 'mobility');
+    `);
+  },
 ];
 
 function migrate(): void {
@@ -270,6 +294,7 @@ export interface SessionSummary {
   sequence_id: string;
   sequence_name: string;
   date: string;
+  finished_at: string | null;
   total: number;
   done: number;
   skipped: number;
@@ -303,6 +328,7 @@ export interface Session {
   sequence_name: string;
   date: string;
   notes: string;
+  finished_at: string | null;
   items: SessionItem[];
 }
 
@@ -312,7 +338,7 @@ const DONE_SQL = "skipped = 0 AND sets_done >= MAX(COALESCE(target_sets, 1), 1)"
 export function listSessions(limit = 30): SessionSummary[] {
   return workoutDb
     .prepare(
-      `SELECT s.id, s.sequence_id, s.sequence_name, s.date,
+      `SELECT s.id, s.sequence_id, s.sequence_name, s.date, s.finished_at,
               COUNT(i.id) AS total,
               COALESCE(SUM(CASE WHEN ${DONE_SQL} THEN 1 ELSE 0 END), 0) AS done,
               COALESCE(SUM(i.skipped), 0) AS skipped
@@ -326,7 +352,7 @@ export function listSessions(limit = 30): SessionSummary[] {
 
 export function getSession(id: number): Session | null {
   const session = workoutDb
-    .prepare("SELECT id, sequence_id, sequence_name, date, notes FROM sessions WHERE id = ?")
+    .prepare("SELECT id, sequence_id, sequence_name, date, notes, finished_at FROM sessions WHERE id = ?")
     .get(id) as Omit<Session, "items"> | undefined;
   if (!session) return null;
   const items = workoutDb
@@ -443,6 +469,99 @@ export const setSessionSetReps = workoutDb.transaction(
 
 export function updateSessionNotes(id: number, notes: string): boolean {
   return workoutDb.prepare("UPDATE sessions SET notes = ? WHERE id = ?").run(notes, id).changes > 0;
+}
+
+export function setSessionFinished(id: number, finished: boolean): boolean {
+  return (
+    workoutDb
+      .prepare(
+        `UPDATE sessions SET finished_at = CASE WHEN ? THEN COALESCE(finished_at, CURRENT_TIMESTAMP) END
+         WHERE id = ?`
+      )
+      .run(finished ? 1 : 0, id).changes > 0
+  );
+}
+
+// --- Weekly goals and day pins ---
+
+export interface Goal {
+  sequenceId: string;
+  perWeek: number;
+}
+
+/** Goals for active sequences, in home-screen order */
+export function listGoals(): Goal[] {
+  return workoutDb
+    .prepare(
+      `SELECT g.sequence_id AS sequenceId, g.per_week AS perWeek
+       FROM weekly_goals g JOIN sequences s ON s.id = g.sequence_id
+       WHERE s.archived = 0 ORDER BY s.position, s.id`
+    )
+    .all() as Goal[];
+}
+
+export function setGoal(sequenceId: string, perWeek: number): void {
+  workoutDb
+    .prepare(
+      `INSERT INTO weekly_goals (sequence_id, per_week) VALUES (?, ?)
+       ON CONFLICT(sequence_id) DO UPDATE SET per_week = excluded.per_week`
+    )
+    .run(sequenceId, perWeek);
+}
+
+export function deleteGoal(sequenceId: string): boolean {
+  return workoutDb.prepare("DELETE FROM weekly_goals WHERE sequence_id = ?").run(sequenceId).changes > 0;
+}
+
+export interface DayPin {
+  date: string;
+  /** null = rest */
+  sequenceId: string | null;
+}
+
+export function listPins(from: string, to: string): DayPin[] {
+  return workoutDb
+    .prepare(
+      `SELECT date, sequence_id AS sequenceId FROM day_pins WHERE date BETWEEN ? AND ? ORDER BY date`
+    )
+    .all(from, to) as DayPin[];
+}
+
+export function setPin(date: string, sequenceId: string | null): void {
+  workoutDb
+    .prepare(
+      `INSERT INTO day_pins (date, sequence_id) VALUES (?, ?)
+       ON CONFLICT(date) DO UPDATE SET sequence_id = excluded.sequence_id`
+    )
+    .run(date, sequenceId);
+}
+
+export function clearPin(date: string): void {
+  workoutDb.prepare("DELETE FROM day_pins WHERE date = ?").run(date);
+}
+
+export interface DaySession {
+  id: number;
+  date: string;
+  sequenceId: string;
+  sequenceName: string;
+  finished: boolean;
+}
+
+export function listSessionsBetween(from: string, to: string): DaySession[] {
+  const rows = workoutDb
+    .prepare(
+      `SELECT id, date, sequence_id, sequence_name, finished_at FROM sessions
+       WHERE date BETWEEN ? AND ? ORDER BY date, id`
+    )
+    .all(from, to) as { id: number; date: string; sequence_id: string; sequence_name: string; finished_at: string | null }[];
+  return rows.map((r) => ({
+    id: r.id,
+    date: r.date,
+    sequenceId: r.sequence_id,
+    sequenceName: r.sequence_name,
+    finished: r.finished_at !== null,
+  }));
 }
 
 export function deleteSession(id: number): void {

@@ -1,6 +1,7 @@
 import { Router, type RequestHandler } from "express";
 import { createHash, timingSafeEqual } from "crypto";
 import type { Exercise, Sequence, SequenceItem } from "./types.js";
+import { planWeek, weekStart, addDays } from "./plan.js";
 import {
   workoutDb,
   listExercises,
@@ -11,6 +12,14 @@ import {
   saveSequence,
   archiveSequence,
   setSessionSetReps,
+  setSessionFinished,
+  listGoals,
+  setGoal,
+  deleteGoal,
+  listPins,
+  setPin,
+  clearPin,
+  listSessionsBetween,
   listSessions,
   getSession,
   findSession,
@@ -264,16 +273,92 @@ workoutRouter.put("/api/sessions/:id/items/:itemId/sets/:set", (req, res) => {
 });
 
 workoutRouter.patch("/api/sessions/:id", (req, res) => {
-  const { notes } = req.body;
-  if (typeof notes !== "string") {
+  const { notes, finished } = req.body ?? {};
+  const id = Number(req.params.id);
+  if (notes === undefined && finished === undefined) {
+    res.status(400).json({ error: "Nothing to update" });
+    return;
+  }
+  if (notes !== undefined && typeof notes !== "string") {
     res.status(400).json({ error: "notes must be a string" });
     return;
   }
-  if (!updateSessionNotes(Number(req.params.id), notes)) {
+  if (finished !== undefined && typeof finished !== "boolean") {
+    res.status(400).json({ error: "finished must be true or false" });
+    return;
+  }
+  const found =
+    (notes === undefined || updateSessionNotes(id, notes)) &&
+    (finished === undefined || setSessionFinished(id, finished));
+  if (!found) {
     res.status(404).json({ error: "Session not found" });
     return;
   }
   res.json({ success: true });
+});
+
+// --- Week plan ---
+
+// The client sends its own today so the week follows the phone's timezone
+workoutRouter.get("/api/week", (req, res) => {
+  const today = req.query.today;
+  if (typeof today !== "string" || !DATE_RE.test(today)) {
+    res.status(400).json({ error: "today must be YYYY-MM-DD" });
+    return;
+  }
+  const start = weekStart(today);
+  const end = addDays(start, 6);
+  res.json({
+    week: planWeek({
+      today,
+      goals: listGoals(),
+      // From the day before, so Monday knows what Sunday held
+      sessions: listSessionsBetween(addDays(start, -1), end),
+      pins: listPins(start, end),
+    }),
+  });
+});
+
+// Pin a day to a sequence, or to rest with sequenceId null. Open like logging,
+// since it's something done from the app.
+workoutRouter.put("/api/pins/:date", (req, res) => {
+  const { date } = req.params;
+  const { sequenceId } = req.body ?? {};
+  if (!DATE_RE.test(date)) {
+    res.status(400).json({ error: "date must be YYYY-MM-DD" });
+    return;
+  }
+  if (sequenceId !== null && (typeof sequenceId !== "string" || !getSequence(sequenceId))) {
+    res.status(400).json({ error: "sequenceId must be a sequence or null for rest" });
+    return;
+  }
+  setPin(date, sequenceId);
+  res.json({ success: true });
+});
+
+// Back to automatic
+workoutRouter.delete("/api/pins/:date", (req, res) => {
+  clearPin(req.params.date);
+  res.json({ success: true });
+});
+
+workoutRouter.put("/api/goals/:sequenceId", requireAdmin, (req, res) => {
+  const { perWeek } = req.body ?? {};
+  if (!getSequence(req.params.sequenceId)) {
+    res.status(404).json({ error: "Unknown sequence" });
+    return;
+  }
+  if (!(Number.isInteger(perWeek) && perWeek >= 1 && perWeek <= 14)) {
+    res.status(400).json({ error: "perWeek must be a whole number from 1 to 14" });
+    return;
+  }
+  setGoal(req.params.sequenceId, perWeek);
+  res.json({ goals: listGoals() });
+});
+
+workoutRouter.delete("/api/goals/:sequenceId", requireAdmin, (req, res) => {
+  deleteGoal(req.params.sequenceId);
+  res.json({ goals: listGoals() });
 });
 
 workoutRouter.delete("/api/sessions/:id", (req, res) => {
