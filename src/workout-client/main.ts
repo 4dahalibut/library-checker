@@ -373,14 +373,28 @@ function confetti(from: HTMLElement, count = 18): void {
 // A dozen are drawn each time from across the range, so there's always one that fits
 
 const WORD_GROUPS: string[][] = [
-  ["Electric", "Unstoppable", "Zippy", "Beastly", "Locked-in", "Feisty", "On fire"],
-  ["Steady", "Crisp", "Tidy", "Grounded", "Smooth", "Dialed", "Solid"],
-  ["Meh", "Wobbly", "Lukewarm", "Foggy", "Clunky", "So-so"],
-  ["Spicy", "Gritty", "Sweaty", "Scrappy", "Hard-won", "Toasty"],
-  ["Sleepy", "Sluggish", "Creaky", "Noodly", "Running on fumes"],
-  ["Speedy", "Rushed", "Snack-sized", "Bite-sized", "Express"],
-  ["Achy", "Gentle", "Careful", "Tender", "Easy does it"],
-  ["Playful", "Joyful", "Bouncy", "Groovy", "Sparkly", "Buttery"],
+  // Flying
+  ["Electric", "Unstoppable", "Rocket-fuelled", "Thunderous", "Supernova", "Turbo", "Main character", "Volcanic", "Legendary", "Lightning in a bottle"],
+  // Solid
+  ["Crisp", "Dialed", "Clockwork", "Shipshape", "Sturdy", "Buttoned-up", "Even-keeled", "No-drama", "Workmanlike", "Squared away"],
+  // Smooth
+  ["Buttery", "Silky", "Floaty", "Velvet", "Gliding", "Liquid", "Swan-like", "Frictionless", "Effortless", "Flowy"],
+  // Meh
+  ["Meh", "Lukewarm", "Beige", "Foggy", "Clunky", "Half-baked", "Off-key", "Static-y", "Bleh", "Unremarkable"],
+  // Tough
+  ["Spicy", "Gritty", "Gnarly", "Character-building", "Molten", "Uphill", "Grindy", "Swampy", "Hard-won", "Sweaty"],
+  // Tired
+  ["Noodly", "Running on fumes", "Zombie", "Jelly-legged", "Potato", "Molasses", "Low battery", "Snoozy", "Sluggish", "Creaky"],
+  // Short
+  ["Snack-sized", "Espresso shot", "Speedrun", "Drive-by", "Pocket-sized", "Tiny but mighty", "Zip-zap", "Express", "Bite-sized", "Blink-and-done"],
+  // Careful
+  ["Tender", "Bubble-wrapped", "Tiptoe", "Kid gloves", "Rusty", "Stiff", "Easy does it", "Gentle", "Babying it", "Achy"],
+  // Fun
+  ["Groovy", "Disco", "Giggly", "Jazzy", "Sunny", "Puppyish", "Confetti", "Bouncy", "Cha-cha", "Sparkly"],
+  // Out there
+  ["Cosmic", "Feral", "Gremlin", "Haunted", "Unhinged", "Wonky", "Kaleidoscope", "Spaghetti", "Squirrelly", "Interpretive dance"],
+  // Focused
+  ["Laser", "Monk mode", "Surgical", "Meditative", "Deliberate", "Precise", "Quiet", "Locked-in", "Intentional", "Zen"],
 ];
 
 function pickWords(count = 12): string[] {
@@ -452,7 +466,7 @@ function sessionPill(item: PillItem, day: WeekDay): string {
           ? "optional"
           : "";
   const status = s?.finished
-    ? `<span class="pill-status${s.word ? " word" : ""}">${s.word ? escapeHtml(s.word) : "✓"}</span>`
+    ? `<span class="pill-status">✓</span>`
     : s
       ? `<span class="pill-status">${s.done}/${s.total}</span>`
       : "";
@@ -524,12 +538,10 @@ async function renderHome(): Promise<void> {
         <div class="log-row">
           <a class="history-row${s.finished_at ? " complete" : ""}" href="#session-${s.id}">
             <span class="history-date">${formatDate(s.date)}</span>
-            <span class="history-name">${escapeHtml(s.sequence_name)}</span>
-            ${
-              s.finished_at && s.word
-                ? `<span class="history-word">${escapeHtml(s.word)}</span>`
-                : `<span class="history-count">${s.done}/${s.total}${skipped}</span>`
-            }
+            <span class="history-name">${escapeHtml(s.sequence_name)}${
+              s.finished_at && s.word ? `<span class="history-word">${escapeHtml(s.word)}</span>` : ""
+            }</span>
+            ${s.finished_at && s.word ? "" : `<span class="history-count">${s.done}/${s.total}${skipped}</span>`}
           </a>
           <button class="log-trash" data-delete="${s.id}" aria-label="Delete ${escapeHtml(s.sequence_name)} on ${formatDate(s.date)}">${TRASH_ICON}</button>
         </div>`;
@@ -1128,7 +1140,7 @@ function updateProgress(session: Session): void {
 
 function renderFinish(session: Session): string {
   return session.finished_at
-    ? `<div class="finished-row"><span class="finished-stamp">${session.word ? escapeHtml(session.word) : "Finished!"}</span>
+    ? `<div class="finished-row"><span class="finished-stamp">Finished!</span>
          <button id="reopen" class="link-button">Reopen</button></div>`
     : `<button id="finish" class="start finish sticker">Finish</button>`;
 }

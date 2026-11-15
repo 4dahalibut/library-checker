@@ -766,13 +766,9 @@ button.past-note {
   color: var(--muted);
 }
 
-.pill-status.word {
-  font-family: var(--display);
-  font-variation-settings: "SOFT" 100, "WONK" 1;
-  font-style: italic;
-}
-
 .history-word {
+  display: block;
+  margin-top: 2px;
   font-family: var(--display);
   font-variation-settings: "SOFT" 100, "WONK" 1;
   font-style: italic;
