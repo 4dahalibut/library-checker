@@ -3,7 +3,11 @@ import "./style.css";
 const API_URL = "/workout/api";
 
 interface SequenceItem {
+  exerciseId: string;
   name: string;
+  weighted: boolean;
+  timed: boolean;
+  toFailure: boolean;
   sets?: number;
   reps?: number;
   seconds?: number;
@@ -40,6 +44,10 @@ interface SessionItem {
   weight: number | null;
   seconds: number | null;
   notes: string;
+  weighted: number;
+  timed: number;
+  to_failure: number;
+  set_reps: (number | null)[];
 }
 
 interface Session {
@@ -74,11 +82,11 @@ function setSaveStatus(text: string, failed = false): void {
   el.classList.toggle("failed", failed);
 }
 
-async function save(path: string, body: Record<string, unknown>): Promise<void> {
+async function save(path: string, body: Record<string, unknown>, method = "PATCH"): Promise<void> {
   pendingSaves++;
   setSaveStatus("Saving…");
   try {
-    await api(path, { method: "PATCH", body: JSON.stringify(body) });
+    await api(path, { method, body: JSON.stringify(body) });
     pendingSaves--;
     if (pendingSaves === 0) setSaveStatus("Saved");
   } catch {
@@ -89,13 +97,13 @@ async function save(path: string, body: Record<string, unknown>): Promise<void> 
 
 const debounceTimers = new Map<string, number>();
 
-function saveLater(key: string, path: string, body: Record<string, unknown>): void {
+function saveLater(key: string, path: string, body: Record<string, unknown>, method = "PATCH"): void {
   clearTimeout(debounceTimers.get(key));
   debounceTimers.set(
     key,
     window.setTimeout(() => {
       debounceTimers.delete(key);
-      save(path, body);
+      save(path, body, method);
     }, 600)
   );
 }
@@ -131,14 +139,17 @@ function targetText(t: {
   reps: number | null;
   seconds: number | null;
   weight: number | null;
+  toFailure?: boolean;
 }): string {
   const parts: string[] = [];
   const each = t.reps ? `${t.reps}` : t.seconds ? formatSeconds(t.seconds) : "";
   if (t.sets && each) parts.push(`${t.sets} × ${each}`);
+  else if (t.sets === 1 && t.toFailure) parts.push("1 set");
   else if (t.sets) parts.push(`${t.sets} sets`);
   else if (each) parts.push(t.reps ? `${each} reps` : each);
   if (t.weight) parts.push(`${t.weight} lb`);
-  return parts.join(" @ ");
+  const text = parts.join(" @ ");
+  return t.toFailure ? `${text ? `${text} ` : ""}to failure` : text;
 }
 
 function escapeHtml(s: string): string {
@@ -199,10 +210,10 @@ function confetti(from: HTMLElement, count = 18): void {
 
 // --- Home ---
 
-let selectedDate = localToday();
-
+// Workouts are always for today
 async function renderHome(): Promise<void> {
   app.innerHTML = `<p class="loading">Loading…</p>`;
+  const today = localToday();
   let sequences: Sequence[];
   let sessions: SessionSummary[];
   try {
@@ -215,20 +226,22 @@ async function renderHome(): Promise<void> {
     return;
   }
 
-  // A day can hold several sequences (a morning routine and a full workout, say)
+  // A day can hold several sequences (a morning routine and a full workout, say).
+  // Tapping one opens its preview, or today's session if it's already started.
   const sequenceCards = sequences.length
     ? sequences
         .map((seq) => {
-          const started = sessions.find((s) => s.sequence_id === seq.id && s.date === selectedDate);
+          const started = sessions.find((s) => s.sequence_id === seq.id && s.date === today);
           const meta = started
             ? `${started.done}/${started.total} done`
             : `${seq.items.length} exercises`;
+          const href = started ? `#session-${started.id}` : `#sequence-${encodeURIComponent(seq.id)}`;
           return `
-        <button class="sequence sticker${started ? " started" : ""}" data-sequence="${escapeHtml(seq.id)}">
+        <a class="sequence sticker${started ? " started" : ""}" href="${href}">
           <span class="sequence-name">${escapeHtml(seq.name)}</span>
           <span class="sequence-meta">${meta}</span>
           <span class="sequence-items">${seq.items.map((i) => escapeHtml(i.name)).join(" · ")}</span>
-        </button>`;
+        </a>`;
         })
         .join("")
     : `<p class="empty">No sequences yet. Ask Claude to cook one up.</p>`;
@@ -250,14 +263,8 @@ async function renderHome(): Promise<void> {
 
   app.innerHTML = `
     <header class="home-header">
-      <div>
-        <h1>Workouts</h1>
-        <p class="greeting">${greeting()}</p>
-      </div>
-      <label class="date-picker">
-        <span>Day</span>
-        <input type="date" id="session-date" value="${selectedDate}" />
-      </label>
+      <h1>Workouts</h1>
+      <p class="greeting">${greeting()}</p>
     </header>
     <section>
       <h2>Pick your adventure</h2>
@@ -268,29 +275,69 @@ async function renderHome(): Promise<void> {
       ${sessions.length ? `<div class="history sticker">${history}</div>` : history}
     </section>
   `;
+}
 
-  const dateInput = document.getElementById("session-date") as HTMLInputElement;
-  dateInput.addEventListener("change", () => {
-    if (dateInput.value) {
-      selectedDate = dateInput.value;
-      renderHome();
+// --- Sequence preview ---
+
+async function renderPreview(sequenceId: string): Promise<void> {
+  app.innerHTML = `<p class="loading">Loading…</p>`;
+  let sequence: Sequence | undefined;
+  try {
+    const { sequences } = await api<{ sequences: Sequence[] }>("/sequences");
+    sequence = sequences.find((s) => s.id === sequenceId);
+  } catch {
+    app.innerHTML = `<p class="loading">Couldn't load this workout. <a href="#">Back</a></p>`;
+    return;
+  }
+  if (!sequence) {
+    app.innerHTML = `<p class="loading">That workout isn't around anymore. <a href="#">Back</a></p>`;
+    return;
+  }
+
+  const rows = sequence.items
+    .map((item) => {
+      const target = targetText({
+        sets: item.sets ?? null,
+        reps: item.reps ?? null,
+        seconds: item.seconds ?? null,
+        weight: item.weight ?? null,
+        toFailure: item.toFailure,
+      });
+      return `
+      <li class="preview-item">
+        <span class="preview-name">${escapeHtml(item.name)}</span>
+        ${target ? `<span class="target">${target}</span>` : ""}
+        ${item.cue ? `<span class="cue">${escapeHtml(item.cue)}</span>` : ""}
+      </li>`;
+    })
+    .join("");
+
+  app.innerHTML = `
+    <header class="session-header">
+      <a class="back" href="#" aria-label="Back">‹</a>
+      <div class="session-title">
+        <h1>${escapeHtml(sequence.name)}</h1>
+        <p>${sequence.items.length} exercises</p>
+      </div>
+    </header>
+    <ol class="preview sticker">${rows}</ol>
+    <button id="start" class="start sticker">Start</button>
+  `;
+
+  const startBtn = document.getElementById("start") as HTMLButtonElement;
+  startBtn.addEventListener("click", async () => {
+    startBtn.disabled = true;
+    try {
+      const { session } = await api<{ session: Session }>("/sessions", {
+        method: "POST",
+        body: JSON.stringify({ sequenceId: sequence!.id, date: localToday() }),
+      });
+      // Replace so Back from the session goes home, not to the preview
+      location.replace(`#session-${session.id}`);
+    } catch {
+      startBtn.disabled = false;
+      alert("Couldn't start that workout. Check your connection.");
     }
-  });
-
-  app.querySelectorAll<HTMLButtonElement>("[data-sequence]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      btn.disabled = true;
-      try {
-        const { session } = await api<{ session: Session }>("/sessions", {
-          method: "POST",
-          body: JSON.stringify({ sequenceId: btn.dataset.sequence, date: selectedDate }),
-        });
-        location.hash = `session-${session.id}`;
-      } catch {
-        btn.disabled = false;
-        alert("Couldn't start that workout. Check your connection.");
-      }
-    });
   });
 }
 
@@ -298,6 +345,16 @@ async function renderHome(): Promise<void> {
 
 function renderSetButtons(item: SessionItem): string {
   const sets = Math.max(item.target_sets ?? 1, 1);
+  if (item.to_failure) {
+    return item.set_reps
+      .map(
+        (reps, i) =>
+          `<label class="field rep-set${reps !== null ? " on" : ""}"><span>Set ${i + 1}</span>
+             <input type="text" inputmode="numeric" data-set-reps="${i + 1}" value="${reps ?? ""}"
+               aria-label="Reps in set ${i + 1}" /><span>reps</span></label>`
+      )
+      .join("");
+  }
   if (sets === 1 && !item.target_sets) {
     return `<button class="set single${item.sets_done ? " on" : ""}" data-set="1" aria-label="Mark done">✓</button>`;
   }
@@ -314,9 +371,10 @@ function renderItem(item: SessionItem): string {
     reps: item.target_reps,
     seconds: item.target_seconds,
     weight: item.target_weight,
+    toFailure: !!item.to_failure,
   });
-  const timed = item.target_seconds !== null;
-  const weighted = item.target_weight !== null || !timed;
+  const timed = !!item.timed;
+  const weighted = !!item.weighted;
   const state = item.skipped ? "skipped" : isDone(item) ? "done" : "";
 
   return `
@@ -420,6 +478,10 @@ async function renderSession(id: number): Promise<void> {
       card.querySelectorAll<HTMLButtonElement>(".set").forEach((btn) => {
         btn.classList.toggle("on", Number(btn.dataset.set) <= item.sets_done);
       });
+      card.querySelectorAll<HTMLInputElement>("[data-set-reps]").forEach((input) => {
+        const reps = item.set_reps[Number(input.dataset.setReps) - 1];
+        input.closest(".rep-set")!.classList.toggle("on", reps !== null);
+      });
       updateProgress(session);
       if (!wasWrapped && !banner.hidden) confetti(card, 48);
       else if (!wasDone && isDone(item)) confetti(card);
@@ -437,6 +499,23 @@ async function renderSession(id: number): Promise<void> {
         }
         refreshCard();
         save(path, body);
+      });
+    });
+
+    // To-failure sets: typing the reps reached logs the set, clearing it un-logs it
+    card.querySelectorAll<HTMLInputElement>("[data-set-reps]").forEach((input) => {
+      const n = Number(input.dataset.setReps);
+      input.addEventListener("input", () => {
+        const value = parseNumber(input.value);
+        const reps = value === null ? null : Math.round(value);
+        item.set_reps[n - 1] = reps;
+        item.sets_done = item.set_reps.filter((r) => r !== null).length;
+        if (item.skipped && reps !== null) {
+          item.skipped = 0;
+          save(path, { skipped: false });
+        }
+        refreshCard();
+        saveLater(`${item.id}-set-${n}`, `${path}/sets/${n}`, { reps }, "PUT");
       });
     });
 
@@ -495,8 +574,10 @@ async function renderSession(id: number): Promise<void> {
 
 function route(): void {
   window.scrollTo(0, 0);
-  const match = location.hash.match(/^#session-(\d+)$/);
-  if (match) renderSession(Number(match[1]));
+  const session = location.hash.match(/^#session-(\d+)$/);
+  const preview = location.hash.match(/^#sequence-(.+)$/);
+  if (session) renderSession(Number(session[1]));
+  else if (preview) renderPreview(decodeURIComponent(preview[1]));
   else renderHome();
 }
 

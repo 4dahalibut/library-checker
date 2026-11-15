@@ -130,10 +130,6 @@ h2 {
 /* --- Home --- */
 
 .home-header {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 12px;
   padding-top: 24px;
 }
 
@@ -143,27 +139,6 @@ h2 {
   margin-top: 4px;
 }
 
-.date-picker {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  font-size: 0.72rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--muted);
-}
-
-.date-picker input {
-  background: var(--card);
-  border: 2.5px solid var(--ink);
-  border-radius: 12px;
-  box-shadow: 3px 3px 0 var(--shadow);
-  padding: 8px 10px;
-  font-size: 1rem;
-  font-weight: 700;
-}
-
 .sequences {
   display: grid;
   gap: 14px;
@@ -171,6 +146,8 @@ h2 {
 
 .sequence {
   display: grid;
+  color: inherit;
+  text-decoration: none;
   grid-template-columns: 1fr auto;
   gap: 4px 12px;
   text-align: left;
@@ -627,6 +604,85 @@ input::placeholder {
   border-style: solid;
   border-color: var(--ink);
   box-shadow: 3px 3px 0 var(--shadow);
+}
+
+/* --- Sequence preview --- */
+
+.preview {
+  list-style: none;
+  margin-top: 16px;
+  padding: 4px 16px;
+}
+
+.preview-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  padding: 12px 0;
+  border-bottom: 2px dashed var(--dots);
+}
+
+.preview-item:last-child {
+  border-bottom: none;
+}
+
+.preview-name {
+  flex: 1 1 auto;
+  font-family: var(--display);
+  font-variation-settings: "SOFT" 100, "WONK" 1;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.preview-item .target {
+  margin-top: 0;
+  font-size: 0.95rem;
+}
+
+.preview-item .cue {
+  flex-basis: 100%;
+  margin-top: 0;
+}
+
+.start {
+  position: sticky;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  display: block;
+  width: 100%;
+  margin-top: 20px;
+  padding: 16px;
+  background: var(--pop);
+  color: var(--pop-ink);
+  font-family: var(--display);
+  font-variation-settings: "SOFT" 100, "WONK" 1;
+  font-size: 1.5rem;
+  font-weight: 800;
+  transform: rotate(-1deg);
+}
+
+.start:active {
+  transform: rotate(-1deg) translate(3px, 3px);
+  box-shadow: 1px 1px 0 var(--shadow);
+}
+
+.start:disabled {
+  opacity: 0.6;
+}
+
+/* To-failure sets: a reps box per set instead of a checkbox */
+.rep-set.on {
+  background: var(--pop);
+  box-shadow: 2px 2px 0 var(--shadow);
+}
+
+.rep-set.on span,
+.rep-set.on input {
+  color: var(--pop-ink);
+}
+
+.rep-set input {
+  width: 3rem;
 }
 
 .delete {
