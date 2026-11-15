@@ -661,6 +661,13 @@ button.rung-chip:active {
   transform: rotate(90deg);
 }
 
+.guide-rung {
+  margin-top: 8px;
+  font-size: 0.95rem;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
 .guide-description {
   margin-top: 8px;
   font-size: 0.92rem;
@@ -963,14 +970,6 @@ body::before {
   font-variant-numeric: tabular-nums;
 }
 
-.cue {
-  color: var(--muted);
-  font-size: 0.92rem;
-  font-weight: 600;
-  font-style: italic;
-  margin-top: 4px;
-}
-
 .skip {
   flex-shrink: 0;
   font-size: 0.85rem;
@@ -1153,11 +1152,6 @@ input::placeholder {
 .preview-item .target {
   margin-top: 0;
   font-size: 0.95rem;
-}
-
-.preview-item .cue {
-  flex-basis: 100%;
-  margin-top: 0;
 }
 
 .start {

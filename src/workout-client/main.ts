@@ -846,7 +846,6 @@ async function renderPreview(sequenceId: string): Promise<void> {
         <span class="preview-name">${escapeHtml(item.name)}</span>
         ${target ? `<span class="target">${target}</span>` : ""}
         ${rungChip(item)}
-        ${item.cue ? `<span class="cue">${escapeHtml(item.cue)}</span>` : ""}
       </li>`;
     })
     .join("");
@@ -998,12 +997,16 @@ function cueHtml(cue: string): string {
     : escapeHtml(cue);
 }
 
-/** Description and form cues, folded away until wanted */
+/**
+ * Everything about how to do it, folded away until wanted: the rung's own note
+ * (e.g. "Knee on bench"), then the exercise's description and cues
+ */
 function renderGuide(item: SessionItem): string {
-  if (!item.description && !item.cues.length) return "";
+  if (!item.cue && !item.description && !item.cues.length) return "";
   return `
     <details class="guide">
-      <summary><span>Form cues</span></summary>
+      <summary><span>Cues</span></summary>
+      ${item.cue ? `<p class="guide-rung">${escapeHtml(item.cue)}</p>` : ""}
       ${item.description ? `<p class="guide-description">${escapeHtml(item.description)}</p>` : ""}
       ${item.cues.length ? `<ul class="guide-cues">${item.cues.map((c) => `<li>${cueHtml(c)}</li>`).join("")}</ul>` : ""}
     </details>`;
@@ -1031,7 +1034,6 @@ function renderItem(item: SessionItem, ladders: Map<string, Ladder>): string {
             <span class="stamp">${stampText(item)}</span>
           </div>
           ${ladderChip(item, ladders)}
-          ${item.cue ? `<p class="cue">${escapeHtml(item.cue)}</p>` : ""}
         </div>
         <button class="skip">${item.skipped ? "Unskip" : "Skip"}</button>
       </div>
