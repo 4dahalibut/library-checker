@@ -11,6 +11,8 @@ import { plankRouter } from "./plank/routes.js";
 import { plankDb } from "./plank/db.js";
 import { calendarRouter } from "./calendar/routes.js";
 import { calendarDb } from "./calendar/db.js";
+import { workoutRouter } from "./workout/routes.js";
+import { workoutDb } from "./workout/db.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -30,6 +32,9 @@ app.use((req, res, next) => {
   if (host.startsWith("calendar")) {
     return calendarRouter(req, res, next);
   }
+  if (host.startsWith("workout")) {
+    return workoutRouter(req, res, next);
+  }
   next();
 });
 
@@ -38,6 +43,9 @@ app.use("/plank", plankRouter);
 
 // Mount calendar routes at /calendar
 app.use("/calendar", calendarRouter);
+
+// Mount workout routes at /workout
+app.use("/workout", workoutRouter);
 
 // Serve plank app at /plank
 if (isProduction) {
@@ -60,6 +68,18 @@ app.get("/calendar", (_req, res) => {
     res.sendFile(join(__dirname, "calendar-client", "calendar.html"));
   } else {
     res.redirect("http://localhost:5557/calendar/calendar.html");
+  }
+});
+
+// Serve workout app at /workout
+if (isProduction) {
+  app.use("/workout", express.static(join(__dirname, "workout-client"), { index: false }));
+}
+app.get("/workout", (_req, res) => {
+  if (isProduction) {
+    res.sendFile(join(__dirname, "workout-client", "workout.html"));
+  } else {
+    res.redirect("http://localhost:5558/workout/workout.html");
   }
 });
 
@@ -589,6 +609,7 @@ if (isProduction) {
   const clientDist = join(__dirname, "client");
   const plankDist = join(__dirname, "plank-client");
   const calendarDist = join(__dirname, "calendar-client");
+  const workoutDist = join(__dirname, "workout-client");
 
   // Route static files and HTML based on hostname
   app.use((req, res, next) => {
@@ -604,6 +625,12 @@ if (isProduction) {
         return res.sendFile(join(calendarDist, "calendar.html"));
       }
       return express.static(calendarDist)(req, res, next);
+    }
+    if (host.startsWith("workout")) {
+      if (req.path === "/" || !req.path.includes(".")) {
+        return res.sendFile(join(workoutDist, "workout.html"));
+      }
+      return express.static(workoutDist)(req, res, next);
     }
     next();
   });
@@ -633,6 +660,7 @@ function shutdown() {
     db.close();
     plankDb.close();
     calendarDb.close();
+    workoutDb.close();
     process.exit(0);
   });
 }
