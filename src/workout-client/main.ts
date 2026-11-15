@@ -990,6 +990,14 @@ function inMinutes(item: SessionItem): boolean {
   return item.target_seconds === null || item.target_seconds >= 60;
 }
 
+/** A cue that starts with a short label ("Setup:", "Lift-off (hold 2–3s):") gets the label in bold */
+function cueHtml(cue: string): string {
+  const match = cue.match(/^([^:.;]{1,32}):\s+(.+)$/);
+  return match
+    ? `<strong>${escapeHtml(match[1])}:</strong> ${escapeHtml(match[2])}`
+    : escapeHtml(cue);
+}
+
 /** Description and form cues, folded away until wanted */
 function renderGuide(item: SessionItem): string {
   if (!item.description && !item.cues.length) return "";
@@ -997,7 +1005,7 @@ function renderGuide(item: SessionItem): string {
     <details class="guide">
       <summary><span>Form cues</span></summary>
       ${item.description ? `<p class="guide-description">${escapeHtml(item.description)}</p>` : ""}
-      ${item.cues.length ? `<ul class="guide-cues">${item.cues.map((c) => `<li>${escapeHtml(c)}</li>`).join("")}</ul>` : ""}
+      ${item.cues.length ? `<ul class="guide-cues">${item.cues.map((c) => `<li>${cueHtml(c)}</li>`).join("")}</ul>` : ""}
     </details>`;
 }
 

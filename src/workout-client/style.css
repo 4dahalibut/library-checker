@@ -679,6 +679,10 @@ button.rung-chip:active {
   line-height: 1.4;
 }
 
+.guide-cues strong {
+  font-weight: 800;
+}
+
 .guide-cues li::marker {
   color: var(--pop);
 }
