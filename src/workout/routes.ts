@@ -1,7 +1,7 @@
 import { Router, type RequestHandler } from "express";
 import { createHash, timingSafeEqual } from "crypto";
-import type { Exercise, Sequence, SequenceItem } from "./types.js";
-import { planWeek, weekStart, addDays } from "./plan.js";
+import type { Exercise, Ladder, PlanItem, Rung, Sequence, SequenceItem, Unit } from "./types.js";
+import { buildWeek, weekStart, addDays } from "./plan.js";
 import {
   workoutDb,
   listExercises,
@@ -13,12 +13,18 @@ import {
   archiveSequence,
   setSessionSetReps,
   setSessionFinished,
-  listGoals,
-  setGoal,
-  deleteGoal,
-  listPins,
-  setPin,
-  clearPin,
+  unknownLadders,
+  unknownSequences,
+  listLadders,
+  getLadder,
+  saveLadder,
+  setLadderRung,
+  getSchedule,
+  saveSchedule,
+  getDayPlans,
+  setDayPlan,
+  resetDayPlan,
+  movePlannedSession,
   listSessionsBetween,
   listSessions,
   getSession,
@@ -100,34 +106,122 @@ workoutRouter.put("/api/exercises/:id", requireAdmin, (req, res) => {
   res.json({ exercise });
 });
 
+// --- Ladders ---
+
+const UNITS: Unit[] = ["reps", "breaths", "steps", "m"];
+
+function parseRung(raw: unknown, index: number): Rung | string {
+  const where = `rungs[${index}]`;
+  if (typeof raw !== "object" || raw === null) return `${where} must be an object`;
+  const { exerciseId, sets, reps, repsMax, seconds, secondsMax, unit, perSide, weight, cue } = raw as Record<
+    string,
+    unknown
+  >;
+  if (typeof exerciseId !== "string") return `${where}.exerciseId is required`;
+  const rung: Rung = { exerciseId };
+  for (const [key, value] of Object.entries({ sets, reps, repsMax, seconds, secondsMax })) {
+    if (value === undefined || value === null) continue;
+    if (!isPositiveInt(value)) return `${where}.${key} must be a whole number above 0`;
+    rung[key as "sets" | "reps" | "repsMax" | "seconds" | "secondsMax"] = value;
+  }
+  if (rung.repsMax !== undefined && !(rung.reps !== undefined && rung.repsMax > rung.reps)) {
+    return `${where}.repsMax must be above reps`;
+  }
+  if (rung.secondsMax !== undefined && !(rung.seconds !== undefined && rung.secondsMax > rung.seconds)) {
+    return `${where}.secondsMax must be above seconds`;
+  }
+  if (unit !== undefined && unit !== null) {
+    if (!UNITS.includes(unit as Unit)) return `${where}.unit must be one of ${UNITS.join(", ")}`;
+    if (unit !== "reps") rung.unit = unit as Unit;
+  }
+  if (perSide !== undefined && perSide !== null) {
+    if (typeof perSide !== "boolean") return `${where}.perSide must be true or false`;
+    if (perSide) rung.perSide = true;
+  }
+  if (weight !== undefined && weight !== null) {
+    if (typeof weight !== "number" || !Number.isFinite(weight) || weight < 0) return `${where}.weight must be a number`;
+    rung.weight = weight;
+  }
+  if (cue !== undefined && cue !== null && cue !== "") {
+    if (typeof cue !== "string") return `${where}.cue must be text`;
+    rung.cue = cue.trim();
+  }
+  return rung;
+}
+
+workoutRouter.get("/api/ladders", (_req, res) => {
+  res.json({ ladders: listLadders() });
+});
+
+// Replaces the ladder's name, side bias and rungs; the current rung stays put
+workoutRouter.put("/api/ladders/:id", requireAdmin, (req, res) => {
+  const { id } = req.params;
+  const { name, extraSide, rungs } = req.body ?? {};
+  if (!SLUG_RE.test(id)) {
+    res.status(400).json({ error: "id must be lowercase letters, digits and dashes" });
+    return;
+  }
+  if (!isName(name)) {
+    res.status(400).json({ error: "name is required" });
+    return;
+  }
+  if (extraSide !== undefined && extraSide !== null && extraSide !== "left" && extraSide !== "right") {
+    res.status(400).json({ error: "extraSide must be left, right or null" });
+    return;
+  }
+  if (!Array.isArray(rungs) || rungs.length === 0 || rungs.length > 20) {
+    res.status(400).json({ error: "rungs must be a list of 1 to 20" });
+    return;
+  }
+  const parsed: Rung[] = [];
+  for (const [i, raw] of rungs.entries()) {
+    const rung = parseRung(raw, i);
+    if (typeof rung === "string") {
+      res.status(400).json({ error: rung });
+      return;
+    }
+    parsed.push(rung);
+  }
+  const unknown = unknownExercises(parsed.map((r) => r.exerciseId));
+  if (unknown.length) {
+    res.status(400).json({ error: `Unknown exercises (create them first): ${unknown.join(", ")}` });
+    return;
+  }
+  const ladder: Ladder = { id, name: name.trim(), rungs: parsed };
+  if (extraSide) ladder.extraSide = extraSide;
+  saveLadder(ladder);
+  res.json({ ladder: getLadder(id) });
+});
+
+// Moving up or down a rung is done from the app, so it's open like logging
+workoutRouter.put("/api/ladders/:id/rung", (req, res) => {
+  const { rung } = req.body ?? {};
+  if (!Number.isInteger(rung) || !setLadderRung(req.params.id, rung)) {
+    res.status(400).json({ error: "No such rung on that ladder" });
+    return;
+  }
+  res.json({ ladder: getLadder(req.params.id) });
+});
+
+// --- Sequences ---
+
 workoutRouter.get("/api/sequences", (_req, res) => {
   res.json({ sequences: listSequences() });
 });
 
 function parseItem(raw: unknown, index: number): SequenceItem | string {
   if (typeof raw !== "object" || raw === null) return `items[${index}] must be an object`;
-  const { exerciseId, sets, reps, seconds, weight, cue } = raw as Record<string, unknown>;
-  if (typeof exerciseId !== "string") return `items[${index}].exerciseId is required`;
-  const item: SequenceItem = { exerciseId };
-  for (const [key, value] of Object.entries({ sets, reps, seconds })) {
-    if (value === undefined || value === null) continue;
-    if (!isPositiveInt(value)) return `items[${index}].${key} must be a whole number above 0`;
-    item[key as "sets" | "reps" | "seconds"] = value;
-  }
-  if (weight !== undefined && weight !== null) {
-    if (typeof weight !== "number" || !Number.isFinite(weight) || weight < 0) {
-      return `items[${index}].weight must be a number`;
-    }
-    item.weight = weight;
-  }
-  if (cue !== undefined && cue !== null && cue !== "") {
-    if (typeof cue !== "string") return `items[${index}].cue must be text`;
-    item.cue = cue.trim();
+  const { ladderId, label } = raw as Record<string, unknown>;
+  if (typeof ladderId !== "string") return `items[${index}].ladderId is required`;
+  const item: SequenceItem = { ladderId };
+  if (label !== undefined && label !== null && label !== "") {
+    if (typeof label !== "string" || label.length > 20) return `items[${index}].label must be short text`;
+    item.label = label.trim();
   }
   return item;
 }
 
-// Replaces the sequence's name and whole exercise list (and restores it if archived)
+// Replaces the sequence's name and whole slot list (and restores it if archived)
 workoutRouter.put("/api/sequences/:id", requireAdmin, (req, res) => {
   const { id } = req.params;
   const { name, items, position } = req.body ?? {};
@@ -156,9 +250,9 @@ workoutRouter.put("/api/sequences/:id", requireAdmin, (req, res) => {
     }
     parsed.push(item);
   }
-  const unknown = unknownExercises(parsed.map((i) => i.exerciseId));
+  const unknown = unknownLadders(parsed.map((i) => i.ladderId));
   if (unknown.length) {
-    res.status(400).json({ error: `Unknown exercises (create them first): ${unknown.join(", ")}` });
+    res.status(400).json({ error: `Unknown ladders (create them first): ${unknown.join(", ")}` });
     return;
   }
   const sequence: Sequence = { id, name: name.trim(), items: parsed };
@@ -297,7 +391,21 @@ workoutRouter.patch("/api/sessions/:id", (req, res) => {
   res.json({ success: true });
 });
 
-// --- Week plan ---
+// --- Week ---
+
+function parsePlanItems(raw: unknown, where: string): PlanItem[] | string {
+  if (!Array.isArray(raw)) return `${where} must be a list`;
+  const items: PlanItem[] = [];
+  for (const [i, entry] of raw.entries()) {
+    const { sequenceId, optional } = (entry ?? {}) as Record<string, unknown>;
+    if (typeof sequenceId !== "string") return `${where}[${i}].sequenceId is required`;
+    if (optional !== undefined && typeof optional !== "boolean") return `${where}[${i}].optional must be true or false`;
+    items.push(optional ? { sequenceId, optional: true } : { sequenceId });
+  }
+  const unknown = unknownSequences(items.map((i) => i.sequenceId));
+  if (unknown.length) return `Unknown sequences: ${unknown.join(", ")}`;
+  return items;
+}
 
 // The client sends its own today so the week follows the phone's timezone
 workoutRouter.get("/api/week", (req, res) => {
@@ -308,57 +416,94 @@ workoutRouter.get("/api/week", (req, res) => {
   }
   const start = weekStart(today);
   const end = addDays(start, 6);
+  const names = new Map(
+    (workoutDb.prepare("SELECT id, name FROM sequences").all() as { id: string; name: string }[]).map((r) => [
+      r.id,
+      r.name,
+    ])
+  );
   res.json({
-    week: planWeek({
+    week: buildWeek({
       today,
-      goals: listGoals(),
-      // From the day before, so Monday knows what Sunday held
-      sessions: listSessionsBetween(addDays(start, -1), end),
-      pins: listPins(start, end),
+      schedule: getSchedule(),
+      dayPlans: getDayPlans(start, end),
+      sessions: listSessionsBetween(start, end),
+      names,
     }),
   });
 });
 
-// Pin a day to a sequence, or to rest with sequenceId null. Open like logging,
-// since it's something done from the app.
-workoutRouter.put("/api/pins/:date", (req, res) => {
+workoutRouter.get("/api/schedule", (_req, res) => {
+  res.json({ schedule: getSchedule() });
+});
+
+// The weekly schedule (Monday first) and busy-week minimums
+workoutRouter.put("/api/schedule", requireAdmin, (req, res) => {
+  const { days, minimums } = req.body ?? {};
+  if (!Array.isArray(days) || days.length !== 7) {
+    res.status(400).json({ error: "days must be a list of 7, Monday first" });
+    return;
+  }
+  const parsedDays: PlanItem[][] = [];
+  for (const [d, raw] of days.entries()) {
+    const items = parsePlanItems(raw, `days[${d}]`);
+    if (typeof items === "string") {
+      res.status(400).json({ error: items });
+      return;
+    }
+    parsedDays.push(items);
+  }
+  const parsedMinimums: { sequenceId: string; perWeek: number }[] = [];
+  for (const [sequenceId, perWeek] of Object.entries(minimums ?? {})) {
+    if (!(Number.isInteger(perWeek) && (perWeek as number) >= 1 && (perWeek as number) <= 14)) {
+      res.status(400).json({ error: `minimums.${sequenceId} must be a whole number from 1 to 14` });
+      return;
+    }
+    parsedMinimums.push({ sequenceId, perWeek: perWeek as number });
+  }
+  const unknown = unknownSequences(parsedMinimums.map((m) => m.sequenceId));
+  if (unknown.length) {
+    res.status(400).json({ error: `Unknown sequences: ${unknown.join(", ")}` });
+    return;
+  }
+  saveSchedule({ days: parsedDays, minimums: parsedMinimums });
+  res.json({ schedule: getSchedule() });
+});
+
+// Changing a day is done from the app, so these are open like logging.
+// Replace what one date holds (an empty list makes it a rest day)
+workoutRouter.put("/api/days/:date", (req, res) => {
   const { date } = req.params;
-  const { sequenceId } = req.body ?? {};
   if (!DATE_RE.test(date)) {
     res.status(400).json({ error: "date must be YYYY-MM-DD" });
     return;
   }
-  if (sequenceId !== null && (typeof sequenceId !== "string" || !getSequence(sequenceId))) {
-    res.status(400).json({ error: "sequenceId must be a sequence or null for rest" });
+  const items = parsePlanItems(req.body?.items, "items");
+  if (typeof items === "string") {
+    res.status(400).json({ error: items });
     return;
   }
-  setPin(date, sequenceId);
+  setDayPlan(date, items);
   res.json({ success: true });
 });
 
-// Back to automatic
-workoutRouter.delete("/api/pins/:date", (req, res) => {
-  clearPin(req.params.date);
+// Back to the schedule
+workoutRouter.delete("/api/days/:date", (req, res) => {
+  resetDayPlan(req.params.date);
   res.json({ success: true });
 });
 
-workoutRouter.put("/api/goals/:sequenceId", requireAdmin, (req, res) => {
-  const { perWeek } = req.body ?? {};
-  if (!getSequence(req.params.sequenceId)) {
-    res.status(404).json({ error: "Unknown sequence" });
+workoutRouter.post("/api/days/move", (req, res) => {
+  const { from, to, sequenceId } = req.body ?? {};
+  if (typeof from !== "string" || !DATE_RE.test(from) || typeof to !== "string" || !DATE_RE.test(to)) {
+    res.status(400).json({ error: "from and to must be YYYY-MM-DD" });
     return;
   }
-  if (!(Number.isInteger(perWeek) && perWeek >= 1 && perWeek <= 14)) {
-    res.status(400).json({ error: "perWeek must be a whole number from 1 to 14" });
+  if (typeof sequenceId !== "string" || !movePlannedSession(from, to, sequenceId)) {
+    res.status(400).json({ error: "That session isn't planned on that day" });
     return;
   }
-  setGoal(req.params.sequenceId, perWeek);
-  res.json({ goals: listGoals() });
-});
-
-workoutRouter.delete("/api/goals/:sequenceId", requireAdmin, (req, res) => {
-  deleteGoal(req.params.sequenceId);
-  res.json({ goals: listGoals() });
+  res.json({ success: true });
 });
 
 workoutRouter.delete("/api/sessions/:id", (req, res) => {

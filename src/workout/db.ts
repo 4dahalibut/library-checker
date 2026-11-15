@@ -1,7 +1,18 @@
 import Database from "better-sqlite3";
 import { dirname, join } from "path";
 import { seedExercises, seedSequences } from "./seed.js";
-import type { Exercise, Sequence, ResolvedSequence, ResolvedSequenceItem } from "./types.js";
+import type {
+  Exercise,
+  Ladder,
+  LadderState,
+  PlanItem,
+  ResolvedSequence,
+  ResolvedSequenceItem,
+  Rung,
+  Sequence,
+  Side,
+  Unit,
+} from "./types.js";
 
 // Default to the same directory as the library DB so it lands on the same volume
 const dbPath =
@@ -44,9 +55,11 @@ workoutDb.exec(`
 `);
 
 // Each migration runs once, in order, inside a transaction, and bumps user_version.
-// Append new ones; never edit or reorder a migration that has shipped.
+// Append new ones; never reorder or change what a shipped migration does. Migrations
+// use their own SQL, not the helpers below, since those follow the latest schema.
 const SLUG_CHECK = (col: string) =>
   `CHECK (${col} GLOB '[a-z0-9]*' AND ${col} NOT GLOB '*[^a-z0-9-]*' AND length(${col}) <= 64)`;
+const DATE_CHECK = (col: string) => `CHECK (${col} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]')`;
 
 const MIGRATIONS: (() => void)[] = [
   // 1: exercises and sequences live in the database instead of the code
@@ -101,8 +114,32 @@ const MIGRATIONS: (() => void)[] = [
       CREATE INDEX session_items_exercise ON session_items(exercise_id);
     `);
 
-    seedExercises.forEach(saveExercise);
-    seedSequences.forEach((seq) => saveSequence(seq));
+    const insertExercise = workoutDb.prepare(
+      "INSERT INTO exercises (id, name, weighted, timed, to_failure) VALUES (?, ?, ?, ?, ?)"
+    );
+    for (const e of seedExercises) {
+      insertExercise.run(e.id, e.name, e.weighted ? 1 : 0, e.timed ? 1 : 0, e.toFailure ? 1 : 0);
+    }
+    const insertSequence = workoutDb.prepare("INSERT INTO sequences (id, name, position) VALUES (?, ?, ?)");
+    const insertItem = workoutDb.prepare(
+      `INSERT INTO sequence_items (sequence_id, position, exercise_id, sets, reps, seconds, weight, cue)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    seedSequences.forEach((seq, position) => {
+      insertSequence.run(seq.id, seq.name, position);
+      seq.items.forEach((item, i) => {
+        insertItem.run(
+          seq.id,
+          i,
+          item.exerciseId,
+          item.sets ?? null,
+          item.reps ?? null,
+          item.seconds ?? null,
+          item.weight ?? null,
+          item.cue ?? ""
+        );
+      });
+    });
 
     // Link sessions logged before this migration to their exercises by name
     workoutDb.exec(`
@@ -115,27 +152,109 @@ const MIGRATIONS: (() => void)[] = [
     `);
   },
 
-  // 2: weekly goals, day pins, and an explicit Finish on sessions
+  // 2: progression ladders, a weekly schedule, and an explicit Finish on sessions
   () => {
     workoutDb.exec(`
-      -- Only finished sessions count toward goals
+      -- Only finished sessions count toward the week
       ALTER TABLE sessions ADD COLUMN finished_at TEXT;
       CREATE INDEX sessions_date ON sessions(date);
 
-      CREATE TABLE weekly_goals (
+      CREATE TABLE ladders (
+        id TEXT PRIMARY KEY ${SLUG_CHECK("id")},
+        name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+        extra_side TEXT CHECK (extra_side IN ('left', 'right')),
+        current_rung INTEGER NOT NULL DEFAULT 1 CHECK (current_rung >= 1),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE ladder_rungs (
+        ladder_id TEXT NOT NULL REFERENCES ladders(id) ON DELETE CASCADE,
+        rung INTEGER NOT NULL CHECK (rung >= 1),
+        exercise_id TEXT NOT NULL REFERENCES exercises(id) ON DELETE RESTRICT,
+        sets INTEGER CHECK (sets IS NULL OR sets > 0),
+        reps INTEGER CHECK (reps IS NULL OR reps > 0),
+        reps_max INTEGER CHECK (reps_max IS NULL OR (reps IS NOT NULL AND reps_max > reps)),
+        seconds INTEGER CHECK (seconds IS NULL OR seconds > 0),
+        seconds_max INTEGER CHECK (seconds_max IS NULL OR (seconds IS NOT NULL AND seconds_max > seconds)),
+        unit TEXT NOT NULL DEFAULT 'reps' CHECK (unit IN ('reps', 'breaths', 'steps', 'm')),
+        per_side INTEGER NOT NULL DEFAULT 0 CHECK (per_side IN (0, 1)),
+        weight REAL CHECK (weight IS NULL OR weight >= 0),
+        cue TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY (ladder_id, rung)
+      );
+      CREATE INDEX ladder_rungs_exercise ON ladder_rungs(exercise_id);
+
+      -- Every rung change, for looking back at progress
+      CREATE TABLE ladder_changes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ladder_id TEXT NOT NULL REFERENCES ladders(id) ON DELETE CASCADE,
+        from_rung INTEGER,
+        to_rung INTEGER NOT NULL,
+        changed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- Each existing slot becomes a one-rung ladder named after its exercise
+      -- (if an exercise sat in two slots, the first slot's targets win)
+      INSERT INTO ladders (id, name)
+        SELECT DISTINCT e.id, e.name FROM sequence_items si JOIN exercises e ON e.id = si.exercise_id;
+      INSERT INTO ladder_rungs (ladder_id, rung, exercise_id, sets, reps, seconds, weight, cue)
+        SELECT exercise_id, 1, exercise_id, sets, reps, seconds, weight, cue FROM sequence_items si
+        WHERE si.id = (SELECT MIN(s2.id) FROM sequence_items s2 WHERE s2.exercise_id = si.exercise_id);
+
+      -- Sequence slots now point at ladders; targets live on the rungs
+      CREATE TABLE sequence_items_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sequence_id TEXT NOT NULL REFERENCES sequences(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL CHECK (position >= 0),
+        ladder_id TEXT NOT NULL REFERENCES ladders(id) ON DELETE RESTRICT,
+        label TEXT NOT NULL DEFAULT '',
+        UNIQUE (sequence_id, position)
+      );
+      INSERT INTO sequence_items_new (id, sequence_id, position, ladder_id)
+        SELECT id, sequence_id, position, exercise_id FROM sequence_items;
+      DROP TABLE sequence_items;
+      ALTER TABLE sequence_items_new RENAME TO sequence_items;
+      CREATE INDEX sequence_items_ladder ON sequence_items(ladder_id);
+
+      -- Sessions snapshot the ladder rung and the full target too
+      ALTER TABLE session_items ADD COLUMN ladder_id TEXT;
+      ALTER TABLE session_items ADD COLUMN rung INTEGER;
+      ALTER TABLE session_items ADD COLUMN label TEXT NOT NULL DEFAULT '';
+      ALTER TABLE session_items ADD COLUMN target_reps_max INTEGER;
+      ALTER TABLE session_items ADD COLUMN target_seconds_max INTEGER;
+      ALTER TABLE session_items ADD COLUMN unit TEXT NOT NULL DEFAULT 'reps';
+      ALTER TABLE session_items ADD COLUMN per_side INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE session_items ADD COLUMN extra_side TEXT;
+      UPDATE session_items SET ladder_id = exercise_id, rung = 1 WHERE exercise_id IS NOT NULL;
+
+      -- The weekly schedule: what each weekday holds (Monday = 0), in order
+      CREATE TABLE schedule_slots (
+        weekday INTEGER NOT NULL CHECK (weekday BETWEEN 0 AND 6),
+        position INTEGER NOT NULL CHECK (position >= 0),
+        sequence_id TEXT NOT NULL REFERENCES sequences(id) ON DELETE CASCADE,
+        optional INTEGER NOT NULL DEFAULT 0 CHECK (optional IN (0, 1)),
+        PRIMARY KEY (weekday, position)
+      );
+
+      -- A date listed here was changed by hand and uses its own items instead of
+      -- the schedule (no items means a rest day)
+      CREATE TABLE day_plans (
+        date TEXT PRIMARY KEY ${DATE_CHECK("date")}
+      );
+      CREATE TABLE day_plan_items (
+        date TEXT NOT NULL REFERENCES day_plans(date) ON DELETE CASCADE,
+        position INTEGER NOT NULL CHECK (position >= 0),
+        sequence_id TEXT NOT NULL REFERENCES sequences(id) ON DELETE CASCADE,
+        optional INTEGER NOT NULL DEFAULT 0 CHECK (optional IN (0, 1)),
+        PRIMARY KEY (date, position)
+      );
+
+      -- Busy-week floor, e.g. 3 Main and 4 Daily Reset
+      CREATE TABLE weekly_minimums (
         sequence_id TEXT PRIMARY KEY REFERENCES sequences(id) ON DELETE CASCADE,
         per_week INTEGER NOT NULL CHECK (per_week BETWEEN 1 AND 14)
       );
-
-      -- A day fixed by hand: a sequence, or rest when sequence_id is NULL.
-      -- Days without a pin are planned automatically from what's left of the goals.
-      CREATE TABLE day_pins (
-        date TEXT PRIMARY KEY CHECK (date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
-        sequence_id TEXT REFERENCES sequences(id) ON DELETE CASCADE
-      );
-
-      INSERT INTO weekly_goals (sequence_id, per_week)
-        SELECT id, CASE id WHEN 'main' THEN 3 ELSE 2 END FROM sequences WHERE id IN ('main', 'mobility');
     `);
   },
 ];
@@ -189,49 +308,178 @@ export function saveExercise(ex: Exercise): void {
     });
 }
 
-/** Returns the ids in the list that aren't exercises */
-export function unknownExercises(ids: string[]): string[] {
-  const known = new Set(listExercises().map((e) => e.id));
+function missing(table: "exercises" | "ladders" | "sequences", ids: string[]): string[] {
+  const known = new Set(
+    (workoutDb.prepare(`SELECT id FROM ${table}`).all() as { id: string }[]).map((r) => r.id)
+  );
   return [...new Set(ids)].filter((id) => !known.has(id));
 }
 
-// --- Sequences ---
+export const unknownExercises = (ids: string[]) => missing("exercises", ids);
+export const unknownLadders = (ids: string[]) => missing("ladders", ids);
+export const unknownSequences = (ids: string[]) => missing("sequences", ids);
 
-interface SequenceItemRow extends ExerciseRow {
-  sequence_id: string;
+// --- Ladders ---
+
+interface RungRow {
+  ladder_id: string;
+  rung: number;
   exercise_id: string;
   sets: number | null;
   reps: number | null;
+  reps_max: number | null;
   seconds: number | null;
+  seconds_max: number | null;
+  unit: Unit;
+  per_side: number;
   weight: number | null;
   cue: string;
 }
 
-/** Active (not archived) sequences in home-screen order, with exercise details */
+function toRung(r: RungRow): Rung {
+  const rung: Rung = { exerciseId: r.exercise_id };
+  if (r.sets !== null) rung.sets = r.sets;
+  if (r.reps !== null) rung.reps = r.reps;
+  if (r.reps_max !== null) rung.repsMax = r.reps_max;
+  if (r.seconds !== null) rung.seconds = r.seconds;
+  if (r.seconds_max !== null) rung.secondsMax = r.seconds_max;
+  if (r.unit !== "reps") rung.unit = r.unit;
+  if (r.per_side) rung.perSide = true;
+  if (r.weight !== null) rung.weight = r.weight;
+  if (r.cue) rung.cue = r.cue;
+  return rung;
+}
+
+export function listLadders(): LadderState[] {
+  const ladders = workoutDb
+    .prepare("SELECT id, name, extra_side, current_rung FROM ladders ORDER BY name")
+    .all() as { id: string; name: string; extra_side: Side | null; current_rung: number }[];
+  const rungs = workoutDb.prepare("SELECT * FROM ladder_rungs ORDER BY ladder_id, rung").all() as RungRow[];
+  return ladders.map((l) => {
+    const ladder: LadderState = {
+      id: l.id,
+      name: l.name,
+      currentRung: l.current_rung,
+      rungs: rungs.filter((r) => r.ladder_id === l.id).map(toRung),
+    };
+    if (l.extra_side) ladder.extraSide = l.extra_side;
+    return ladder;
+  });
+}
+
+export function getLadder(id: string): LadderState | null {
+  return listLadders().find((l) => l.id === id) ?? null;
+}
+
+/**
+ * Insert or replace a ladder's name, side bias and rungs. Keeps the current rung,
+ * pulled down if the ladder got shorter.
+ */
+export function saveLadder(ladder: Ladder): void {
+  workoutDb.transaction(() => {
+    workoutDb
+      .prepare(
+        `INSERT INTO ladders (id, name, extra_side) VALUES (?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET name = excluded.name, extra_side = excluded.extra_side,
+           updated_at = CURRENT_TIMESTAMP`
+      )
+      .run(ladder.id, ladder.name, ladder.extraSide ?? null);
+    workoutDb.prepare("DELETE FROM ladder_rungs WHERE ladder_id = ?").run(ladder.id);
+    const insert = workoutDb.prepare(
+      `INSERT INTO ladder_rungs
+         (ladder_id, rung, exercise_id, sets, reps, reps_max, seconds, seconds_max, unit, per_side, weight, cue)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    ladder.rungs.forEach((r, i) => {
+      insert.run(
+        ladder.id,
+        i + 1,
+        r.exerciseId,
+        r.sets ?? null,
+        r.reps ?? null,
+        r.repsMax ?? null,
+        r.seconds ?? null,
+        r.secondsMax ?? null,
+        r.unit ?? "reps",
+        r.perSide ? 1 : 0,
+        r.weight ?? null,
+        r.cue ?? ""
+      );
+    });
+    const { current_rung } = workoutDb
+      .prepare("SELECT current_rung FROM ladders WHERE id = ?")
+      .get(ladder.id) as { current_rung: number };
+    if (current_rung > ladder.rungs.length) setLadderRung(ladder.id, ladder.rungs.length);
+  })();
+}
+
+/** Moves a ladder to a rung and logs the change. Returns false if out of range. */
+export function setLadderRung(id: string, rung: number): boolean {
+  return workoutDb.transaction(() => {
+    const ladder = workoutDb.prepare("SELECT current_rung FROM ladders WHERE id = ?").get(id) as
+      | { current_rung: number }
+      | undefined;
+    const { n } = workoutDb
+      .prepare("SELECT COUNT(*) AS n FROM ladder_rungs WHERE ladder_id = ?")
+      .get(id) as { n: number };
+    if (!ladder || rung < 1 || rung > n) return false;
+    if (ladder.current_rung === rung) return true;
+    workoutDb
+      .prepare("UPDATE ladders SET current_rung = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+      .run(rung, id);
+    workoutDb
+      .prepare("INSERT INTO ladder_changes (ladder_id, from_rung, to_rung) VALUES (?, ?, ?)")
+      .run(id, ladder.current_rung, rung);
+    return true;
+  })();
+}
+
+// --- Sequences ---
+
+/** Active (not archived) sequences in home-screen order, each slot at its ladder's current rung */
 export function listSequences(): ResolvedSequence[] {
   const seqs = workoutDb
     .prepare("SELECT id, name FROM sequences WHERE archived = 0 ORDER BY position, id")
     .all() as { id: string; name: string }[];
-  const items = workoutDb
+  const slots = workoutDb
     .prepare(
-      `SELECT si.sequence_id, si.exercise_id, si.sets, si.reps, si.seconds, si.weight, si.cue,
-              e.id, e.name, e.weighted, e.timed, e.to_failure
-       FROM sequence_items si JOIN exercises e ON e.id = si.exercise_id
+      `SELECT si.sequence_id, si.label, l.id AS ladder_id, l.name AS ladder_name, l.extra_side,
+              l.current_rung, (SELECT COUNT(*) FROM ladder_rungs c WHERE c.ladder_id = l.id) AS rung_count,
+              r.rung, r.exercise_id, r.sets, r.reps, r.reps_max, r.seconds, r.seconds_max, r.unit,
+              r.per_side, r.weight, r.cue, e.name, e.weighted, e.timed, e.to_failure
+       FROM sequence_items si
+       JOIN ladders l ON l.id = si.ladder_id
+       JOIN ladder_rungs r ON r.ladder_id = l.id AND r.rung = l.current_rung
+       JOIN exercises e ON e.id = r.exercise_id
        ORDER BY si.sequence_id, si.position`
     )
-    .all() as SequenceItemRow[];
+    .all() as (RungRow &
+    Omit<ExerciseRow, "id"> & {
+      sequence_id: string;
+      label: string;
+      ladder_name: string;
+      extra_side: Side | null;
+      current_rung: number;
+      rung_count: number;
+    })[];
   return seqs.map((seq) => ({
     ...seq,
-    items: items
-      .filter((r) => r.sequence_id === seq.id)
-      .map((r): ResolvedSequenceItem => {
-        const item: ResolvedSequenceItem = { exerciseId: r.exercise_id, ...toExercise(r) };
-        delete (item as Partial<Exercise>).id;
-        if (r.sets !== null) item.sets = r.sets;
-        if (r.reps !== null) item.reps = r.reps;
-        if (r.seconds !== null) item.seconds = r.seconds;
-        if (r.weight !== null) item.weight = r.weight;
-        if (r.cue) item.cue = r.cue;
+    items: slots
+      .filter((s) => s.sequence_id === seq.id)
+      .map((s): ResolvedSequenceItem => {
+        const item: ResolvedSequenceItem = {
+          ladderId: s.ladder_id,
+          ladderName: s.ladder_name,
+          rung: s.current_rung,
+          rungCount: s.rung_count,
+          name: s.name,
+          weighted: !!s.weighted,
+          timed: !!s.timed,
+          toFailure: !!s.to_failure,
+          ...toRung(s),
+        };
+        if (s.label) item.label = s.label;
+        if (s.extra_side) item.extraSide = s.extra_side;
         return item;
       }),
   }));
@@ -242,7 +490,7 @@ export function getSequence(id: string): ResolvedSequence | null {
 }
 
 /**
- * Insert or replace a sequence and its whole exercise list, and un-archive it.
+ * Insert or replace a sequence and its whole slot list, and un-archive it.
  * New sequences go last on the home screen unless a position is given.
  */
 export function saveSequence(seq: Sequence, position?: number): void {
@@ -262,21 +510,9 @@ export function saveSequence(seq: Sequence, position?: number): void {
       .run({ id: seq.id, name: seq.name, position: position ?? existing?.position ?? next });
     workoutDb.prepare("DELETE FROM sequence_items WHERE sequence_id = ?").run(seq.id);
     const insert = workoutDb.prepare(
-      `INSERT INTO sequence_items (sequence_id, position, exercise_id, sets, reps, seconds, weight, cue)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      "INSERT INTO sequence_items (sequence_id, position, ladder_id, label) VALUES (?, ?, ?, ?)"
     );
-    seq.items.forEach((item, i) => {
-      insert.run(
-        seq.id,
-        i,
-        item.exerciseId,
-        item.sets ?? null,
-        item.reps ?? null,
-        item.seconds ?? null,
-        item.weight ?? null,
-        item.cue ?? ""
-      );
-    });
+    seq.items.forEach((item, i) => insert.run(seq.id, i, item.ladderId, item.label ?? ""));
   })();
 }
 
@@ -288,6 +524,100 @@ export function archiveSequence(id: string): boolean {
       .run(id).changes > 0
   );
 }
+
+// --- Schedule ---
+
+export interface Schedule {
+  /** Monday first */
+  days: PlanItem[][];
+  minimums: { sequenceId: string; perWeek: number }[];
+}
+
+function toPlanItems(rows: { sequence_id: string; optional: number }[]): PlanItem[] {
+  return rows.map((r) => (r.optional ? { sequenceId: r.sequence_id, optional: true } : { sequenceId: r.sequence_id }));
+}
+
+export function getSchedule(): Schedule {
+  const slots = workoutDb
+    .prepare("SELECT weekday, sequence_id, optional FROM schedule_slots ORDER BY weekday, position")
+    .all() as { weekday: number; sequence_id: string; optional: number }[];
+  const minimums = workoutDb
+    .prepare("SELECT sequence_id AS sequenceId, per_week AS perWeek FROM weekly_minimums ORDER BY sequence_id")
+    .all() as Schedule["minimums"];
+  return {
+    days: Array.from({ length: 7 }, (_, d) => toPlanItems(slots.filter((s) => s.weekday === d))),
+    minimums,
+  };
+}
+
+export function saveSchedule(schedule: Schedule): void {
+  workoutDb.transaction(() => {
+    workoutDb.exec("DELETE FROM schedule_slots; DELETE FROM weekly_minimums;");
+    const slot = workoutDb.prepare(
+      "INSERT INTO schedule_slots (weekday, position, sequence_id, optional) VALUES (?, ?, ?, ?)"
+    );
+    schedule.days.forEach((items, d) =>
+      items.forEach((item, i) => slot.run(d, i, item.sequenceId, item.optional ? 1 : 0))
+    );
+    const min = workoutDb.prepare("INSERT INTO weekly_minimums (sequence_id, per_week) VALUES (?, ?)");
+    schedule.minimums.forEach((m) => min.run(m.sequenceId, m.perWeek));
+  })();
+}
+
+/** Dates in the range that were changed by hand, with their items */
+export function getDayPlans(from: string, to: string): Map<string, PlanItem[]> {
+  const dates = workoutDb
+    .prepare("SELECT date FROM day_plans WHERE date BETWEEN ? AND ?")
+    .all(from, to) as { date: string }[];
+  const items = workoutDb
+    .prepare(
+      `SELECT date, sequence_id, optional FROM day_plan_items WHERE date BETWEEN ? AND ?
+       ORDER BY date, position`
+    )
+    .all(from, to) as { date: string; sequence_id: string; optional: number }[];
+  return new Map(dates.map(({ date }) => [date, toPlanItems(items.filter((i) => i.date === date))]));
+}
+
+function weekdayOf(date: string): number {
+  const [y, m, d] = date.split("-").map(Number);
+  return (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7;
+}
+
+/** What a date holds: its hand-made plan, or the schedule for its weekday */
+export function effectivePlan(date: string): PlanItem[] {
+  return getDayPlans(date, date).get(date) ?? getSchedule().days[weekdayOf(date)];
+}
+
+export function setDayPlan(date: string, items: PlanItem[]): void {
+  workoutDb.transaction(() => {
+    workoutDb.prepare("INSERT OR IGNORE INTO day_plans (date) VALUES (?)").run(date);
+    workoutDb.prepare("DELETE FROM day_plan_items WHERE date = ?").run(date);
+    const insert = workoutDb.prepare(
+      "INSERT INTO day_plan_items (date, position, sequence_id, optional) VALUES (?, ?, ?, ?)"
+    );
+    items.forEach((item, i) => insert.run(date, i, item.sequenceId, item.optional ? 1 : 0));
+  })();
+}
+
+/** Back to the schedule */
+export function resetDayPlan(date: string): void {
+  workoutDb.prepare("DELETE FROM day_plans WHERE date = ?").run(date);
+}
+
+/** Moves one planned session from a date to another. Returns false if it wasn't planned there. */
+export function movePlannedSession(from: string, to: string, sequenceId: string): boolean {
+  return workoutDb.transaction(() => {
+    const source = effectivePlan(from);
+    const index = source.findIndex((i) => i.sequenceId === sequenceId);
+    if (index === -1) return false;
+    const [moved] = source.splice(index, 1);
+    setDayPlan(from, source);
+    if (from !== to) setDayPlan(to, [...effectivePlan(to), moved]);
+    return true;
+  })();
+}
+
+// --- Sessions ---
 
 export interface SessionSummary {
   id: number;
@@ -305,16 +635,24 @@ export interface SessionItem {
   position: number;
   name: string;
   cue: string;
+  label: string;
   target_sets: number | null;
   target_reps: number | null;
+  target_reps_max: number | null;
   target_seconds: number | null;
+  target_seconds_max: number | null;
   target_weight: number | null;
+  unit: Unit;
+  per_side: number;
+  extra_side: Side | null;
   sets_done: number;
   skipped: number;
   weight: number | null;
   seconds: number | null;
   notes: string;
   exercise_id: string | null;
+  ladder_id: string | null;
+  rung: number | null;
   weighted: number;
   timed: number;
   to_failure: number;
@@ -332,8 +670,13 @@ export interface Session {
   items: SessionItem[];
 }
 
-// An exercise without a set count is a single check-off
-const DONE_SQL = "skipped = 0 AND sets_done >= MAX(COALESCE(target_sets, 1), 1)";
+// Sets to tick: the target (a single check if none), plus the extra set on a biased side
+const SETS_SQL = "MAX(COALESCE(target_sets, 1), 1) + (extra_side IS NOT NULL)";
+const DONE_SQL = `skipped = 0 AND sets_done >= ${SETS_SQL}`;
+
+function totalSets(item: { target_sets: number | null; extra_side: Side | null }): number {
+  return Math.max(item.target_sets ?? 1, 1) + (item.extra_side ? 1 : 0);
+}
 
 export function listSessions(limit = 30): SessionSummary[] {
   return workoutDb
@@ -357,8 +700,9 @@ export function getSession(id: number): Session | null {
   if (!session) return null;
   const items = workoutDb
     .prepare(
-      `SELECT id, position, name, cue, target_sets, target_reps, target_seconds, target_weight,
-              sets_done, skipped, weight, seconds, notes, exercise_id, weighted, timed, to_failure
+      `SELECT id, position, name, cue, label, target_sets, target_reps, target_reps_max, target_seconds,
+              target_seconds_max, target_weight, unit, per_side, extra_side, sets_done, skipped, weight,
+              seconds, notes, exercise_id, ladder_id, rung, weighted, timed, to_failure
        FROM session_items WHERE session_id = ? ORDER BY position`
     )
     .all(id) as Omit<SessionItem, "set_reps">[];
@@ -371,7 +715,7 @@ export function getSession(id: number): Session | null {
   return {
     ...session,
     items: items.map((item) => {
-      const setReps: (number | null)[] = Array(Math.max(item.target_sets ?? 1, 1)).fill(null);
+      const setReps: (number | null)[] = Array(totalSets(item)).fill(null);
       sets
         .filter((s) => s.session_item_id === item.id && s.set_number <= setReps.length)
         .forEach((s) => (setReps[s.set_number - 1] = s.reps));
@@ -393,25 +737,36 @@ export const createSession = workoutDb.transaction((sequence: ResolvedSequence, 
     .run(sequence.id, sequence.name, date);
   const insertItem = workoutDb.prepare(
     `INSERT INTO session_items
-       (session_id, position, name, cue, target_sets, target_reps, target_seconds, target_weight,
-        exercise_id, weighted, timed, to_failure)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       (session_id, position, name, cue, label, target_sets, target_reps, target_reps_max, target_seconds,
+        target_seconds_max, target_weight, unit, per_side, extra_side, exercise_id, ladder_id, rung,
+        weighted, timed, to_failure)
+     VALUES (@session_id, @position, @name, @cue, @label, @sets, @reps, @reps_max, @seconds,
+        @seconds_max, @weight, @unit, @per_side, @extra_side, @exercise_id, @ladder_id, @rung,
+        @weighted, @timed, @to_failure)`
   );
   sequence.items.forEach((item, position) => {
-    insertItem.run(
-      lastInsertRowid,
+    insertItem.run({
+      session_id: lastInsertRowid,
       position,
-      item.name,
-      item.cue ?? "",
-      item.sets ?? null,
-      item.reps ?? null,
-      item.seconds ?? null,
-      item.weight ?? null,
-      item.exerciseId,
-      item.weighted ? 1 : 0,
-      item.timed ? 1 : 0,
-      item.toFailure ? 1 : 0
-    );
+      name: item.name,
+      cue: item.cue ?? "",
+      label: item.label ?? "",
+      sets: item.sets ?? null,
+      reps: item.reps ?? null,
+      reps_max: item.repsMax ?? null,
+      seconds: item.seconds ?? null,
+      seconds_max: item.secondsMax ?? null,
+      weight: item.weight ?? null,
+      unit: item.unit ?? "reps",
+      per_side: item.perSide ? 1 : 0,
+      extra_side: item.extraSide ?? null,
+      exercise_id: item.exerciseId,
+      ladder_id: item.ladderId,
+      rung: item.rung,
+      weighted: item.weighted ? 1 : 0,
+      timed: item.timed ? 1 : 0,
+      to_failure: item.toFailure ? 1 : 0,
+    });
   });
   return Number(lastInsertRowid);
 });
@@ -444,9 +799,9 @@ export function updateSessionItem(sessionId: number, itemId: number, update: Ite
 export const setSessionSetReps = workoutDb.transaction(
   (sessionId: number, itemId: number, setNumber: number, reps: number | null): number | null => {
     const item = workoutDb
-      .prepare("SELECT target_sets FROM session_items WHERE id = ? AND session_id = ?")
-      .get(itemId, sessionId) as { target_sets: number | null } | undefined;
-    if (!item || setNumber < 1 || setNumber > Math.max(item.target_sets ?? 1, 1)) return null;
+      .prepare("SELECT target_sets, extra_side FROM session_items WHERE id = ? AND session_id = ?")
+      .get(itemId, sessionId) as { target_sets: number | null; extra_side: Side | null } | undefined;
+    if (!item || setNumber < 1 || setNumber > totalSets(item)) return null;
     if (reps === null) {
       workoutDb
         .prepare("DELETE FROM session_sets WHERE session_item_id = ? AND set_number = ?")
@@ -482,85 +837,41 @@ export function setSessionFinished(id: number, finished: boolean): boolean {
   );
 }
 
-// --- Weekly goals and day pins ---
-
-export interface Goal {
-  sequenceId: string;
-  perWeek: number;
-}
-
-/** Goals for active sequences, in home-screen order */
-export function listGoals(): Goal[] {
-  return workoutDb
-    .prepare(
-      `SELECT g.sequence_id AS sequenceId, g.per_week AS perWeek
-       FROM weekly_goals g JOIN sequences s ON s.id = g.sequence_id
-       WHERE s.archived = 0 ORDER BY s.position, s.id`
-    )
-    .all() as Goal[];
-}
-
-export function setGoal(sequenceId: string, perWeek: number): void {
-  workoutDb
-    .prepare(
-      `INSERT INTO weekly_goals (sequence_id, per_week) VALUES (?, ?)
-       ON CONFLICT(sequence_id) DO UPDATE SET per_week = excluded.per_week`
-    )
-    .run(sequenceId, perWeek);
-}
-
-export function deleteGoal(sequenceId: string): boolean {
-  return workoutDb.prepare("DELETE FROM weekly_goals WHERE sequence_id = ?").run(sequenceId).changes > 0;
-}
-
-export interface DayPin {
-  date: string;
-  /** null = rest */
-  sequenceId: string | null;
-}
-
-export function listPins(from: string, to: string): DayPin[] {
-  return workoutDb
-    .prepare(
-      `SELECT date, sequence_id AS sequenceId FROM day_pins WHERE date BETWEEN ? AND ? ORDER BY date`
-    )
-    .all(from, to) as DayPin[];
-}
-
-export function setPin(date: string, sequenceId: string | null): void {
-  workoutDb
-    .prepare(
-      `INSERT INTO day_pins (date, sequence_id) VALUES (?, ?)
-       ON CONFLICT(date) DO UPDATE SET sequence_id = excluded.sequence_id`
-    )
-    .run(date, sequenceId);
-}
-
-export function clearPin(date: string): void {
-  workoutDb.prepare("DELETE FROM day_pins WHERE date = ?").run(date);
-}
-
 export interface DaySession {
   id: number;
   date: string;
   sequenceId: string;
   sequenceName: string;
   finished: boolean;
+  done: number;
+  total: number;
 }
 
 export function listSessionsBetween(from: string, to: string): DaySession[] {
   const rows = workoutDb
     .prepare(
-      `SELECT id, date, sequence_id, sequence_name, finished_at FROM sessions
-       WHERE date BETWEEN ? AND ? ORDER BY date, id`
+      `SELECT s.id, s.date, s.sequence_id, s.sequence_name, s.finished_at, COUNT(i.id) AS total,
+              COALESCE(SUM(CASE WHEN ${DONE_SQL} THEN 1 ELSE 0 END), 0) AS done
+       FROM sessions s LEFT JOIN session_items i ON i.session_id = s.id
+       WHERE s.date BETWEEN ? AND ? GROUP BY s.id ORDER BY s.date, s.id`
     )
-    .all(from, to) as { id: number; date: string; sequence_id: string; sequence_name: string; finished_at: string | null }[];
+    .all(from, to) as {
+    id: number;
+    date: string;
+    sequence_id: string;
+    sequence_name: string;
+    finished_at: string | null;
+    done: number;
+    total: number;
+  }[];
   return rows.map((r) => ({
     id: r.id,
     date: r.date,
     sequenceId: r.sequence_id,
     sequenceName: r.sequence_name,
     finished: r.finished_at !== null,
+    done: r.done,
+    total: r.total,
   }));
 }
 

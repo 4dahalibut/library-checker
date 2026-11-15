@@ -1,10 +1,30 @@
-import type { Exercise, Sequence } from "./types.js";
+// Frozen: this is the data migration 1 put into workout.db, in that migration's
+// shape (exercises and sequence slots with targets; ladders came in migration 2).
+// Everything is edited through the API now, so changing this file does nothing for
+// an existing database.
 
-// Frozen: this is the data migration 1 put into workout.db. Sequences and exercises
-// are edited through the API now (see routes.ts), so changing this file does nothing
-// for an existing database.
+interface SeedExercise {
+  id: string;
+  name: string;
+  weighted: boolean;
+  timed: boolean;
+  toFailure: boolean;
+}
 
-export const seedExercises: Exercise[] = [
+interface SeedSequence {
+  id: string;
+  name: string;
+  items: {
+    exerciseId: string;
+    sets?: number;
+    reps?: number;
+    seconds?: number;
+    weight?: number;
+    cue?: string;
+  }[];
+}
+
+export const seedExercises: SeedExercise[] = [
   { id: "sled-warm-up", name: "Sled Warm Up", weighted: true, timed: false, toFailure: false },
   { id: "tibialis-raise", name: "Tibialis Raise", weighted: false, timed: false, toFailure: false },
   { id: "deep-calf-raise", name: "Deep Calf Raise", weighted: true, timed: false, toFailure: false },
@@ -27,7 +47,7 @@ export const seedExercises: Exercise[] = [
   { id: "active-hangs", name: "Active Hangs", weighted: false, timed: false, toFailure: false },
 ];
 
-export const seedSequences: Sequence[] = [
+export const seedSequences: SeedSequence[] = [
   {
     id: "main",
     name: "Main Day",

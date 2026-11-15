@@ -1,38 +1,49 @@
-// Plans the current week from weekly goals. Nothing here is stored: past days show
-// what actually happened, and today onward is recomputed from what's left, so doing
-// something different from the plan just reshuffles the rest of the week.
+// Builds the current week: each day's plan (the schedule, or what was changed by
+// hand for that date) matched against the sessions actually logged. Missed sessions
+// stay missed; nothing is moved to catch up.
 
-import type { DayPin, DaySession, Goal } from "./db.js";
+import type { DaySession, Schedule } from "./db.js";
+import type { PlanItem } from "./types.js";
 
-/** Monday = 0 … Sunday = 6. Workout days unless a pin says otherwise. */
-const DEFAULT_WORKOUT_WEEKDAYS = new Set([0, 1, 2, 3, 4]);
+export interface WeekItem {
+  sequenceId: string;
+  name: string;
+  optional: boolean;
+  /** The session logged for it that day, if any */
+  session: { id: number; finished: boolean; done: number; total: number } | null;
+}
 
-export interface PlannedDay {
+export interface WeekDay {
   date: string;
   /** Monday = 0 */
   weekday: number;
   isToday: boolean;
   isPast: boolean;
-  sessions: DaySession[];
-  /** What today or a future day holds; null for past days */
-  plan: {
-    /** null = rest */
-    sequenceId: string | null;
-    /** session: today's started session; pin: set by hand; auto: from goals; default: weekend rest */
-    source: "session" | "pin" | "auto" | "default";
-  } | null;
+  /** Changed by hand rather than following the schedule */
+  changed: boolean;
+  items: WeekItem[];
+  /** Sessions logged that day that weren't planned */
+  extras: DaySession[];
 }
 
-export interface GoalProgress extends Goal {
-  /** Finished sessions this week */
+export interface WeekProgress {
+  sequenceId: string;
+  name: string;
+  /** Planned (non-optional) times per week on the schedule */
+  target: number;
+  /** Finished this week */
   done: number;
+  /** Busy-week floor, if set */
+  minimum: number | null;
 }
 
-export interface WeekPlan {
+export interface Week {
   start: string;
   end: string;
-  days: PlannedDay[];
-  goals: GoalProgress[];
+  days: WeekDay[];
+  progress: WeekProgress[];
+  /** Whether every busy-week minimum is met so far; null when none are set */
+  minimumMet: boolean | null;
 }
 
 function parseDate(date: string): Date {
@@ -40,106 +51,85 @@ function parseDate(date: string): Date {
   return new Date(Date.UTC(y, m - 1, d));
 }
 
-function formatDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
 export function addDays(date: string, days: number): string {
   const d = parseDate(date);
   d.setUTCDate(d.getUTCDate() + days);
-  return formatDate(d);
+  return d.toISOString().slice(0, 10);
 }
 
 /** Monday of the week holding this date */
 export function weekStart(date: string): string {
-  const weekday = (parseDate(date).getUTCDay() + 6) % 7;
-  return addDays(date, -weekday);
+  return addDays(date, -((parseDate(date).getUTCDay() + 6) % 7));
 }
 
-export function planWeek(input: {
+export function buildWeek(input: {
   today: string;
-  goals: Goal[];
-  /** Sessions from the day before the week through its end */
+  schedule: Schedule;
+  /** Dates changed by hand */
+  dayPlans: Map<string, PlanItem[]>;
+  /** Sessions within the week */
   sessions: DaySession[];
-  pins: DayPin[];
-}): WeekPlan {
-  const { today, goals, sessions, pins } = input;
+  /** Current names of sequences, by id */
+  names: Map<string, string>;
+}): Week {
+  const { today, schedule, dayPlans, sessions, names } = input;
   const start = weekStart(today);
   const end = addDays(start, 6);
-  const dates = Array.from({ length: 7 }, (_, i) => addDays(start, i));
-  const goalIds = goals.map((g) => g.sequenceId);
-  const isGoal = (id: string | null): id is string => id !== null && goalIds.includes(id);
+  const nameOf = (id: string) => names.get(id) ?? sessions.find((s) => s.sequenceId === id)?.sequenceName ?? id;
 
-  const sessionsOn = (date: string) => sessions.filter((s) => s.date === date);
-  const pinOn = (date: string) => pins.find((p) => p.date === date);
+  const days: WeekDay[] = Array.from({ length: 7 }, (_, weekday) => {
+    const date = addDays(start, weekday);
+    const plan = dayPlans.get(date) ?? schedule.days[weekday];
+    const unmatched = sessions.filter((s) => s.date === date);
+    const items = plan.map((p): WeekItem => {
+      const i = unmatched.findIndex((s) => s.sequenceId === p.sequenceId);
+      const session = i === -1 ? null : unmatched.splice(i, 1)[0];
+      return {
+        sequenceId: p.sequenceId,
+        name: nameOf(p.sequenceId),
+        optional: !!p.optional,
+        session: session && {
+          id: session.id,
+          finished: session.finished,
+          done: session.done,
+          total: session.total,
+        },
+      };
+    });
+    return {
+      date,
+      weekday,
+      isToday: date === today,
+      isPast: date < today,
+      changed: dayPlans.has(date),
+      items,
+      extras: unmatched,
+    };
+  });
 
-  const done = new Map(goals.map((g) => [g.sequenceId, 0]));
-  for (const s of sessions) {
-    if (s.finished && s.date >= start && s.date <= end && isGoal(s.sequenceId)) {
-      done.set(s.sequenceId, done.get(s.sequenceId)! + 1);
-    }
+  // Progress for everything the schedule or a minimum mentions, in schedule order
+  const ids: string[] = [];
+  for (const items of schedule.days) {
+    for (const item of items) if (!ids.includes(item.sequenceId)) ids.push(item.sequenceId);
   }
+  for (const m of schedule.minimums) if (!ids.includes(m.sequenceId)) ids.push(m.sequenceId);
 
-  const days: PlannedDay[] = dates.map((date, weekday) => ({
-    date,
-    weekday,
-    isToday: date === today,
-    isPast: date < today,
-    sessions: sessionsOn(date),
-    plan: null,
-  }));
+  const progress = ids
+    .map((sequenceId): WeekProgress => ({
+      sequenceId,
+      name: nameOf(sequenceId),
+      target: schedule.days.flat().filter((i) => i.sequenceId === sequenceId && !i.optional).length,
+      done: sessions.filter((s) => s.sequenceId === sequenceId && s.finished).length,
+      minimum: schedule.minimums.find((m) => m.sequenceId === sequenceId)?.perWeek ?? null,
+    }))
+    .filter((p) => p.target > 0 || p.minimum !== null);
 
-  // First pass: fix today's session and pinned days, so automatic days can't use
-  // up a sequence that's already spoken for later in the week
-  const remaining = new Map(goals.map((g) => [g.sequenceId, g.perWeek - done.get(g.sequenceId)!]));
-  const reserve = (id: string | null) => {
-    if (isGoal(id)) remaining.set(id, remaining.get(id)! - 1);
-  };
-  const open: PlannedDay[] = [];
-  for (const day of days) {
-    if (day.isPast) continue;
-    const todays = day.isToday ? day.sessions.find((s) => isGoal(s.sequenceId)) ?? day.sessions[0] : undefined;
-    const pin = pinOn(day.date);
-    if (todays) {
-      day.plan = { sequenceId: todays.sequenceId, source: "session" };
-      if (!todays.finished) reserve(todays.sequenceId);
-    } else if (pin) {
-      day.plan = { sequenceId: pin.sequenceId, source: "pin" };
-      reserve(pin.sequenceId);
-    } else if (!DEFAULT_WORKOUT_WEEKDAYS.has(day.weekday)) {
-      day.plan = { sequenceId: null, source: "default" };
-    } else {
-      open.push(day);
-    }
-  }
-
-  // What the day before holds, for not doubling up on back-to-back days
-  const previousSequence = (date: string): string | null => {
-    const prev = addDays(date, -1);
-    const planned = days.find((d) => d.date === prev && !d.isPast)?.plan;
-    if (planned) return planned.sequenceId;
-    const finished = sessionsOn(prev).filter((s) => s.finished);
-    return finished.length ? finished[finished.length - 1].sequenceId : null;
-  };
-
-  // Second pass, in date order: the sequence with the most left to do, never the
-  // same as the day before (that's only on purpose, via a pin); ties go by goal order
-  for (const day of open) {
-    const prev = previousSequence(day.date);
-    let pick: string | null = null;
-    for (const id of goalIds) {
-      const left = remaining.get(id)!;
-      if (left <= 0 || id === prev) continue;
-      if (pick === null || left > remaining.get(pick)!) pick = id;
-    }
-    day.plan = { sequenceId: pick, source: "auto" };
-    reserve(pick);
-  }
-
+  const withMinimum = progress.filter((p) => p.minimum !== null);
   return {
     start,
     end,
     days,
-    goals: goals.map((g) => ({ ...g, done: done.get(g.sequenceId)! })),
+    progress,
+    minimumMet: withMinimum.length ? withMinimum.every((p) => p.done >= p.minimum!) : null,
   };
 }
