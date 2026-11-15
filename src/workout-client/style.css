@@ -137,7 +137,7 @@ h2 {
   padding-top: 24px;
 }
 
-/* Hero of the day: a round cut-out face with a sticker outline */
+/* Hero of the day: a cut-out head with a white sticker edge and a hard shadow */
 .hero {
   flex-shrink: 0;
   display: grid;
@@ -148,15 +148,10 @@ h2 {
 }
 
 .hero-face {
-  width: 88px;
-  height: 88px;
-  object-fit: cover;
-  border-radius: 50%;
-  border: 5px solid #fff;
-  outline: 2.5px solid var(--ink);
-  box-shadow: 4px 4px 0 var(--shadow);
-  transform: rotate(-5deg);
-  background: var(--field);
+  width: 96px;
+  height: 96px;
+  filter: drop-shadow(0 0 1px var(--ink)) drop-shadow(3px 3px 0 var(--shadow));
+  transform: rotate(-6deg);
 }
 
 .hero figcaption {
@@ -180,13 +175,6 @@ h2 {
   font-weight: 800;
 }
 
-.hero-credit {
-  font-size: 0.55rem;
-  font-weight: 600;
-  color: var(--muted);
-  text-decoration: none;
-  overflow-wrap: anywhere;
-}
 
 .greeting {
   color: var(--muted);

@@ -1,16 +1,14 @@
-// Hero of the day: one face on the home page, rotating daily. Photos are freely
-// licensed from Wikimedia Commons; their licenses ask for the credit shown with them.
+// Hero of the day: one cut-out face on the home page, a different hero each day.
 
 export interface Hero {
   name: string;
-  photo: string;
-  /** Who took the photo and its license, e.g. "Photo: Jane Doe, CC BY 2.0" */
-  credit: string;
-  /** The photo's Commons page */
-  source: string;
+  /** A head cut out of its background, with a white sticker edge (transparent PNG) */
+  face: string;
 }
 
-export const HEROES: Hero[] = [];
+export const HEROES: Hero[] = [
+  { name: "Khabib Nurmagomedov", face: new URL("./heroes/khabib.png", import.meta.url).href },
+];
 
 /** The same hero all day, a different one each day (local date) */
 export function heroOfTheDay(date: Date = new Date()): Hero | null {
