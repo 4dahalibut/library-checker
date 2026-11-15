@@ -98,7 +98,7 @@ interface SessionItem {
   to_failure: number;
   set_reps: (number | null)[];
   last_set_reps: (number | null)[];
-  last_note: PastNote | null;
+  last_note: LatestNote | null;
   description: string;
   cues: string[];
 }
@@ -108,6 +108,10 @@ interface PastNote {
   text: string;
 }
 
+interface LatestNote extends PastNote {
+  count: number;
+}
+
 interface Session {
   id: number;
   sequence_id: string;
@@ -115,7 +119,7 @@ interface Session {
   date: string;
   notes: string;
   finished_at: string | null;
-  last_session_note: PastNote | null;
+  last_session_note: LatestNote | null;
   items: SessionItem[];
 }
 
@@ -927,14 +931,58 @@ function renderSetButtons(item: SessionItem): string {
   ).join("");
 }
 
-/** A note from an earlier session, shown above where today's goes */
-function pastNote(label: string, note: PastNote | null): string {
-  if (!note) return "";
+function pastNoteEntry(note: PastNote, label?: string): string {
   return `
-    <div class="past-note">
-      <span class="past-note-label">${escapeHtml(label)} · ${formatDate(note.date)}</span>
-      <p class="past-note-text">${escapeHtml(note.text)}</p>
-    </div>`;
+    <span class="past-note-label">${label ? `${escapeHtml(label)} · ` : ""}${formatDate(note.date)}</span>
+    <p class="past-note-text">${escapeHtml(note.text)}</p>`;
+}
+
+/**
+ * The latest note from an earlier session, shown above where today's goes. When there
+ * are more, tapping it lists them all (item = the exercise's id in this session, or
+ * omitted for session notes).
+ */
+function pastNote(label: string, note: LatestNote | null, item?: number): string {
+  if (!note) return "";
+  if (note.count < 2) return `<div class="past-note">${pastNoteEntry(note, label)}</div>`;
+  return `
+    <button class="past-note expandable" data-label="${escapeHtml(label)}" ${item === undefined ? "" : `data-item="${item}"`}
+      aria-expanded="false">
+      <span class="past-note-more">${note.count} notes ▾</span>
+      <span class="past-note-body">${pastNoteEntry(note, label)}</span>
+    </button>`;
+}
+
+function bindPastNotes(session: Session): void {
+  app.querySelectorAll<HTMLButtonElement>(".past-note.expandable").forEach((panel) => {
+    const latest = panel.querySelector(".past-note-body")!.innerHTML;
+    const more = panel.querySelector(".past-note-more")!;
+    const count = more.textContent!.split(" ")[0];
+    let all: PastNote[] | null = null;
+    panel.addEventListener("click", async () => {
+      const body = panel.querySelector(".past-note-body")!;
+      if (panel.getAttribute("aria-expanded") === "true") {
+        panel.setAttribute("aria-expanded", "false");
+        body.innerHTML = latest;
+        more.textContent = `${count} notes ▾`;
+        return;
+      }
+      if (!all) {
+        more.textContent = "Loading…";
+        try {
+          const query = panel.dataset.item ? `?item=${panel.dataset.item}` : "";
+          ({ notes: all } = await api<{ notes: PastNote[] }>(`/sessions/${session.id}/past-notes${query}`));
+        } catch {
+          more.textContent = `${count} notes ▾`;
+          alert("Couldn't load the older notes. Check your connection.");
+          return;
+        }
+      }
+      panel.setAttribute("aria-expanded", "true");
+      body.innerHTML = all.map((n, i) => `<div class="past-note-entry">${pastNoteEntry(n, i === 0 ? panel.dataset.label : undefined)}</div>`).join("");
+      more.textContent = "Show less ▴";
+    });
+  });
 }
 
 /** Long or open-ended times (a dance session, a 10 min warm-up) are entered in minutes */
@@ -999,7 +1047,7 @@ function renderItem(item: SessionItem, ladders: Map<string, Ladder>): string {
             : ""
         }
       </div>
-      ${pastNote("Last time", item.last_note)}
+      ${pastNote("Last time", item.last_note, item.id)}
       <textarea id="notes-${item.id}" data-field="notes" rows="1" placeholder="Notes">${escapeHtml(item.notes)}</textarea>
     </article>`;
 }
@@ -1072,6 +1120,7 @@ async function renderSession(id: number): Promise<void> {
     <button id="delete-session" class="delete">Delete this workout</button>
   `;
   updateProgress(session);
+  bindPastNotes(session);
 
   const bindFinish = () => {
     document.getElementById("finish")?.addEventListener("click", async (e) => {

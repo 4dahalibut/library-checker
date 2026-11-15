@@ -14,6 +14,7 @@ import {
   archiveSequence,
   setSessionSetReps,
   setSessionFinished,
+  pastNotes,
   unknownLadders,
   unknownSequences,
   listLadders,
@@ -322,6 +323,26 @@ workoutRouter.get("/api/sessions/:id", (req, res) => {
     return;
   }
   res.json({ session });
+});
+
+// Every note written before this session: on one of its exercises, or for its sequence
+workoutRouter.get("/api/sessions/:id/past-notes", (req, res) => {
+  const session = getSession(Number(req.params.id));
+  if (!session) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+  const itemId = req.query.item;
+  if (itemId === undefined) {
+    res.json({ notes: pastNotes("sequence", session.sequence_id, session) });
+    return;
+  }
+  const item = session.items.find((i) => i.id === Number(itemId));
+  if (!item) {
+    res.status(404).json({ error: "Exercise not found" });
+    return;
+  }
+  res.json({ notes: item.exercise_id ? pastNotes("exercise", item.exercise_id, session) : [] });
 });
 
 workoutRouter.patch("/api/sessions/:id/items/:itemId", (req, res) => {

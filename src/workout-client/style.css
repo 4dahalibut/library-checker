@@ -696,6 +696,28 @@ button.rung-chip:active {
   margin-bottom: 10px;
 }
 
+button.past-note {
+  display: block;
+  width: 100%;
+  text-align: left;
+  color: var(--ink);
+  position: relative;
+}
+
+.past-note-more {
+  float: right;
+  margin-left: 8px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.past-note-entry + .past-note-entry {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 2px dashed var(--dots);
+}
+
 .past-note-label {
   display: block;
   font-size: 0.75rem;

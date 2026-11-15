@@ -710,7 +710,7 @@ export interface SessionItem {
   /** Reps per set from the last time this exercise was logged elsewhere, as hints */
   last_set_reps: (number | null)[];
   /** The latest note on this exercise from a session before this one */
-  last_note: PastNote | null;
+  last_note: LatestNote | null;
   /** How to do it, read live from the exercise */
   description: string;
   cues: string[];
@@ -721,6 +721,11 @@ export interface PastNote {
   text: string;
 }
 
+export interface LatestNote extends PastNote {
+  /** How many earlier notes there are, this one included */
+  count: number;
+}
+
 export interface Session {
   id: number;
   sequence_id: string;
@@ -729,35 +734,42 @@ export interface Session {
   notes: string;
   finished_at: string | null;
   /** Session notes from the last time this sequence was done before this session */
-  last_session_note: PastNote | null;
+  last_session_note: LatestNote | null;
   items: SessionItem[];
 }
 
 // "Before this session": an earlier date, or the same date but started earlier
 const BEFORE_SQL = "(s.date < @date OR (s.date = @date AND s.id < @id))";
 
-function lastItemNote(exerciseId: string, session: { id: number; date: string }): PastNote | null {
-  return (
-    (workoutDb
-      .prepare(
-        `SELECT s.date, i.notes AS text FROM session_items i JOIN sessions s ON s.id = i.session_id
-         WHERE i.exercise_id = @exerciseId AND trim(i.notes) != '' AND ${BEFORE_SQL}
-         ORDER BY s.date DESC, s.id DESC LIMIT 1`
-      )
-      .get({ exerciseId, id: session.id, date: session.date }) as PastNote | undefined) ?? null
-  );
+const PAST_NOTE_SQL = {
+  // Notes on one exercise, from any sequence
+  exercise: `SELECT s.date, i.notes AS text FROM session_items i JOIN sessions s ON s.id = i.session_id
+             WHERE i.exercise_id = @key AND trim(i.notes) != '' AND ${BEFORE_SQL}`,
+  // Session notes for one sequence
+  sequence: `SELECT s.date, s.notes AS text FROM sessions s
+             WHERE s.sequence_id = @key AND trim(s.notes) != '' AND ${BEFORE_SQL}`,
+};
+
+/** Notes written before this session, newest first */
+export function pastNotes(
+  kind: keyof typeof PAST_NOTE_SQL,
+  key: string,
+  session: { id: number; date: string },
+  limit = 100
+): PastNote[] {
+  return workoutDb
+    .prepare(`${PAST_NOTE_SQL[kind]} ORDER BY s.date DESC, s.id DESC LIMIT @limit`)
+    .all({ key, id: session.id, date: session.date, limit }) as PastNote[];
 }
 
-function lastSessionNote(sequenceId: string, session: { id: number; date: string }): PastNote | null {
-  return (
-    (workoutDb
-      .prepare(
-        `SELECT s.date, s.notes AS text FROM sessions s
-         WHERE s.sequence_id = @sequenceId AND trim(s.notes) != '' AND ${BEFORE_SQL}
-         ORDER BY s.date DESC, s.id DESC LIMIT 1`
-      )
-      .get({ sequenceId, id: session.id, date: session.date }) as PastNote | undefined) ?? null
-  );
+/** The latest earlier note, with how many there are in all */
+function latestNote(kind: keyof typeof PAST_NOTE_SQL, key: string, session: { id: number; date: string }): LatestNote | null {
+  const [latest] = pastNotes(kind, key, session, 1);
+  if (!latest) return null;
+  const { n } = workoutDb
+    .prepare(`SELECT COUNT(*) AS n FROM (${PAST_NOTE_SQL[kind]})`)
+    .get({ key, id: session.id, date: session.date }) as { n: number };
+  return { ...latest, count: n };
 }
 
 // Sets to tick: the target (a single check if none), plus the extra set on a biased side
@@ -805,7 +817,7 @@ export function getSession(id: number): Session | null {
     .all(id) as { session_item_id: number; set_number: number; reps: number }[];
   return {
     ...session,
-    last_session_note: lastSessionNote(session.sequence_id, session),
+    last_session_note: latestNote("sequence", session.sequence_id, session),
     items: items.map((item) => {
       const setReps: (number | null)[] = Array(totalSets(item)).fill(null);
       sets
@@ -818,7 +830,7 @@ export function getSession(id: number): Session | null {
           .filter((r) => r.set_number <= lastSetReps.length)
           .forEach((r) => (lastSetReps[r.set_number - 1] = r.reps));
       }
-      const lastNote = item.exercise_id ? lastItemNote(item.exercise_id, session) : null;
+      const lastNote = item.exercise_id ? latestNote("exercise", item.exercise_id, session) : null;
       return { ...item, set_reps: setReps, last_set_reps: lastSetReps, last_note: lastNote, ...guide };
     }),
   };
