@@ -14,6 +14,9 @@ export default defineConfig({
   appType: "mpa",
   plugins: [
     VitePWA({
+      // Manifest only: saving needs the network anyway, and a caching
+      // service worker would show the previous build after each deploy
+      selfDestroying: true,
       registerType: "autoUpdate",
       workbox: {
         globPatterns: ["**/*.{js,css,html,png,svg,ico}"],
@@ -23,8 +26,8 @@ export default defineConfig({
         name: "Workouts",
         short_name: "Workouts",
         description: "Workout sequences with a checklist for each day",
-        theme_color: "#f5f5f5",
-        background_color: "#f5f5f5",
+        theme_color: "#ebe6ff",
+        background_color: "#ebe6ff",
         display: "standalone",
         start_url: "/workout/",
         scope: "/workout/",

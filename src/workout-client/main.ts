@@ -154,6 +154,49 @@ function isDone(item: SessionItem): boolean {
   return !item.skipped && item.sets_done >= Math.max(item.target_sets ?? 1, 1);
 }
 
+// --- Whimsy ---
+
+const CHEERS = ["Nice!", "Crushed it", "Yesss", "Done!", "Beast", "Smooth", "Hot dog!", "Boom"];
+
+function cheerFor(item: SessionItem): string {
+  return CHEERS[item.id % CHEERS.length];
+}
+
+function stampText(item: SessionItem): string {
+  if (item.skipped) return "Not today";
+  return isDone(item) ? cheerFor(item) : "";
+}
+
+function greeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 5) return "Up late, night owl?";
+  if (hour < 11) return "Morning, sunshine.";
+  if (hour < 14) return "Lunchtime lift?";
+  if (hour < 18) return "Afternoon, champ.";
+  return "Evening, legend.";
+}
+
+const CONFETTI_COLORS = ["#ff6f4f", "#ffd84a", "#7be0a0", "#8f7bff", "#4fc3ff"];
+
+function confetti(from: HTMLElement, count = 18): void {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const rect = from.getBoundingClientRect();
+  for (let i = 0; i < count; i++) {
+    const bit = document.createElement("span");
+    bit.className = "confetti";
+    bit.style.left = `${rect.left + rect.width / 2}px`;
+    bit.style.top = `${rect.top + rect.height / 2}px`;
+    bit.style.background = CONFETTI_COLORS[i % CONFETTI_COLORS.length];
+    const angle = Math.random() * Math.PI * 2;
+    const distance = 60 + Math.random() * 110;
+    bit.style.setProperty("--dx", `${Math.cos(angle) * distance}px`);
+    bit.style.setProperty("--dy", `${Math.sin(angle) * distance - 40}px`);
+    bit.style.setProperty("--spin", `${Math.random() * 720 - 360}deg`);
+    document.body.appendChild(bit);
+    bit.addEventListener("animationend", () => bit.remove());
+  }
+}
+
 // --- Home ---
 
 let selectedDate = localToday();
@@ -181,14 +224,14 @@ async function renderHome(): Promise<void> {
             ? `${started.done}/${started.total} done`
             : `${seq.items.length} exercises`;
           return `
-        <button class="sequence${started ? " started" : ""}" data-sequence="${escapeHtml(seq.id)}">
+        <button class="sequence sticker${started ? " started" : ""}" data-sequence="${escapeHtml(seq.id)}">
           <span class="sequence-name">${escapeHtml(seq.name)}</span>
           <span class="sequence-meta">${meta}</span>
           <span class="sequence-items">${seq.items.map((i) => escapeHtml(i.name)).join(" · ")}</span>
         </button>`;
         })
         .join("")
-    : `<p class="empty">No sequences yet. Ask Claude to add one.</p>`;
+    : `<p class="empty">No sequences yet. Ask Claude to cook one up.</p>`;
 
   const history = sessions.length
     ? sessions
@@ -203,23 +246,26 @@ async function renderHome(): Promise<void> {
         </a>`;
         })
         .join("")
-    : `<p class="empty">Workouts you start show up here.</p>`;
+    : `<p class="empty">Nothing yet. Your first workout will land here.</p>`;
 
   app.innerHTML = `
     <header class="home-header">
-      <h1>Workouts</h1>
+      <div>
+        <h1>Workouts</h1>
+        <p class="greeting">${greeting()}</p>
+      </div>
       <label class="date-picker">
         <span>Day</span>
         <input type="date" id="session-date" value="${selectedDate}" />
       </label>
     </header>
     <section>
-      <h2>Start a sequence</h2>
+      <h2>Pick your adventure</h2>
       <div class="sequences">${sequenceCards}</div>
     </section>
     <section>
       <h2>Recent</h2>
-      <div class="history">${history}</div>
+      ${sessions.length ? `<div class="history sticker">${history}</div>` : history}
     </section>
   `;
 
@@ -274,11 +320,14 @@ function renderItem(item: SessionItem): string {
   const state = item.skipped ? "skipped" : isDone(item) ? "done" : "";
 
   return `
-    <article class="exercise ${state}" data-item="${item.id}">
+    <article class="exercise sticker ${state}" data-item="${item.id}">
       <div class="exercise-head">
         <div>
           <h3>${escapeHtml(item.name)}</h3>
-          ${target ? `<p class="target">${target}</p>` : ""}
+          <div class="target-row">
+            ${target ? `<p class="target">${target}</p>` : ""}
+            <span class="stamp">${stampText(item)}</span>
+          </div>
           ${item.cue ? `<p class="cue">${escapeHtml(item.cue)}</p>` : ""}
         </div>
         <button class="skip">${item.skipped ? "Unskip" : "Skip"}</button>
@@ -302,14 +351,20 @@ function renderItem(item: SessionItem): string {
     </article>`;
 }
 
+function isWrapped(session: Session): boolean {
+  return session.items.length > 0 && session.items.every((i) => isDone(i) || i.skipped);
+}
+
 function updateProgress(session: Session): void {
   const done = session.items.filter(isDone).length;
   const skipped = session.items.filter((i) => i.skipped).length;
   const total = session.items.length;
   const bar = document.getElementById("progress-fill");
   const label = document.getElementById("progress-label");
+  const banner = document.getElementById("wrap-banner");
   if (bar) bar.style.width = `${total ? ((done + skipped) / total) * 100 : 0}%`;
   if (label) label.textContent = `${done}/${total} done${skipped ? ` · ${skipped} skipped` : ""}`;
+  if (banner) banner.hidden = !isWrapped(session);
 }
 
 function autoGrow(el: HTMLTextAreaElement): void {
@@ -337,6 +392,10 @@ async function renderSession(id: number): Promise<void> {
       <span id="save-status" class="save-status"></span>
       <div class="progress"><div id="progress-fill"></div></div>
     </header>
+    <div id="wrap-banner" class="wrap-banner sticker" hidden>
+      <strong>That's a wrap!</strong>
+      Jot down how it went below.
+    </div>
     <div class="exercises">${session.items.map(renderItem).join("")}</div>
     <section class="session-notes">
       <h2>Session notes</h2>
@@ -351,13 +410,19 @@ async function renderSession(id: number): Promise<void> {
     const path = `/sessions/${session.id}/items/${item.id}`;
 
     const refreshCard = () => {
+      const wasDone = card.classList.contains("done");
+      const banner = document.getElementById("wrap-banner")!;
+      const wasWrapped = !banner.hidden;
       card.classList.toggle("done", isDone(item));
       card.classList.toggle("skipped", !!item.skipped);
       card.querySelector(".skip")!.textContent = item.skipped ? "Unskip" : "Skip";
+      card.querySelector(".stamp")!.textContent = stampText(item);
       card.querySelectorAll<HTMLButtonElement>(".set").forEach((btn) => {
         btn.classList.toggle("on", Number(btn.dataset.set) <= item.sets_done);
       });
       updateProgress(session);
+      if (!wasWrapped && !banner.hidden) confetti(card, 48);
+      else if (!wasDone && isDone(item)) confetti(card);
     };
 
     // Tapping the last finished set undoes it; tapping any other set fills up to it
