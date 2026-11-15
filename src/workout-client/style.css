@@ -130,7 +130,62 @@ h2 {
 /* --- Home --- */
 
 .home-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding-top: 24px;
+}
+
+/* Hero of the day: a round cut-out face with a sticker outline */
+.hero {
+  flex-shrink: 0;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  width: 112px;
+  text-align: center;
+}
+
+.hero-face {
+  width: 88px;
+  height: 88px;
+  object-fit: cover;
+  border-radius: 50%;
+  border: 5px solid #fff;
+  outline: 2.5px solid var(--ink);
+  box-shadow: 4px 4px 0 var(--shadow);
+  transform: rotate(-5deg);
+  background: var(--field);
+}
+
+.hero figcaption {
+  display: grid;
+  gap: 1px;
+  line-height: 1.15;
+}
+
+.hero-label {
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.hero-name {
+  font-family: var(--display);
+  font-variation-settings: "SOFT" 100, "WONK" 1;
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.hero-credit {
+  font-size: 0.55rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-decoration: none;
+  overflow-wrap: anywhere;
 }
 
 .greeting {

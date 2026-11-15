@@ -1,4 +1,5 @@
 import "./style.css";
+import { heroOfTheDay } from "./heroes.js";
 
 const API_URL = "/workout/api";
 
@@ -502,6 +503,20 @@ function dayTitle(day: WeekDay): string {
   return day.isToday ? "Today" : formatDate(day.date);
 }
 
+function heroCard(): string {
+  const hero = heroOfTheDay();
+  if (!hero) return "";
+  return `
+    <figure class="hero">
+      <img class="hero-face" src="${hero.photo}" alt="${escapeHtml(hero.name)}" width="96" height="96" />
+      <figcaption>
+        <span class="hero-label">Hero of the day</span>
+        <span class="hero-name">${escapeHtml(hero.name)}</span>
+        <a class="hero-credit" href="${hero.source}" target="_blank" rel="noopener">${escapeHtml(hero.credit)}</a>
+      </figcaption>
+    </figure>`;
+}
+
 // Home opens on just today; tapping it shows the whole week (kept while the app is open)
 let weekOpen = false;
 
@@ -570,8 +585,11 @@ async function renderHome(): Promise<void> {
 
   app.innerHTML = `
     <header class="home-header">
-      <h1>Workouts</h1>
-      <p class="greeting">${greeting()}</p>
+      <div>
+        <h1>Workouts</h1>
+        <p class="greeting">${greeting()}</p>
+      </div>
+      ${heroCard()}
     </header>
     <section>
       <h2 id="week-heading">${weekOpen ? "This week" : "Today"}</h2>
