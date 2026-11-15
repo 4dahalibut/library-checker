@@ -887,6 +887,11 @@ function renderSetButtons(item: SessionItem): string {
   ).join("");
 }
 
+/** Long or open-ended times (a dance session, a 10 min warm-up) are entered in minutes */
+function inMinutes(item: SessionItem): boolean {
+  return item.target_seconds === null || item.target_seconds >= 60;
+}
+
 /** Description and form cues, folded away until wanted */
 function renderGuide(item: SessionItem): string {
   if (!item.description && !item.cues.length) return "";
@@ -935,8 +940,12 @@ function renderItem(item: SessionItem, ladders: Map<string, Ladder>): string {
         }
         ${
           item.timed
-            ? `<label class="field"><input type="text" inputmode="numeric" id="seconds-${item.id}" data-field="seconds"
-                 value="${item.seconds ?? ""}" placeholder="${item.target_seconds ?? ""}" /><span>sec</span></label>`
+            ? inMinutes(item)
+              ? `<label class="field"><input type="text" inputmode="decimal" id="seconds-${item.id}" data-field="seconds"
+                   data-minutes="1" value="${item.seconds === null ? "" : +(item.seconds / 60).toFixed(1)}"
+                   placeholder="${item.target_seconds === null ? "" : item.target_seconds / 60}" /><span>min</span></label>`
+              : `<label class="field"><input type="text" inputmode="numeric" id="seconds-${item.id}" data-field="seconds"
+                   value="${item.seconds ?? ""}" placeholder="${item.target_seconds ?? ""}" /><span>sec</span></label>`
             : ""
         }
       </div>
@@ -1105,7 +1114,9 @@ async function renderSession(id: number): Promise<void> {
     card.querySelectorAll<HTMLInputElement>("input[data-field]").forEach((input) => {
       const field = input.dataset.field as "weight" | "seconds";
       input.addEventListener("input", () => {
-        const value = parseNumber(input.value);
+        const entered = parseNumber(input.value);
+        // Minutes boxes still store seconds
+        const value = entered !== null && input.dataset.minutes ? Math.round(entered * 60) : entered;
         item[field] = value;
         saveLater(`${item.id}-${field}`, path, { [field]: value });
       });
