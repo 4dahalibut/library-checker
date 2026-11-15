@@ -68,6 +68,8 @@ interface SessionSummary {
   date: string;
   finished_at: string | null;
   word: string | null;
+  effort: number | null;
+  conscientiousness: number | null;
   total: number;
   done: number;
   skipped: number;
@@ -121,6 +123,8 @@ interface Session {
   notes: string;
   finished_at: string | null;
   word: string | null;
+  effort: number | null;
+  conscientiousness: number | null;
   last_session_note: LatestNote | null;
   items: SessionItem[];
 }
@@ -369,6 +373,21 @@ function confetti(from: HTMLElement, count = 18): void {
   }
 }
 
+// --- Self-ratings out of 5 ---
+
+const RATINGS = [
+  { field: "effort", label: "Effort" },
+  { field: "conscientiousness", label: "Conscientiousness" },
+] as const;
+type RatingField = (typeof RATINGS)[number]["field"];
+
+/** e.g. "Effort ★4 · Conscientiousness ★5" as HTML, leaving out ones not given; each pair stays on one line */
+function ratingsText(r: { effort: number | null; conscientiousness: number | null }): string {
+  return RATINGS.filter(({ field }) => r[field] !== null)
+    .map(({ field, label }) => `<span class="rating-pair">${label} ★${r[field]}</span>`)
+    .join(" · ");
+}
+
 // --- Words for how a session went ---
 // A dozen are drawn each time from across the range, so there's always one that fits
 
@@ -540,7 +559,7 @@ async function renderHome(): Promise<void> {
             <span class="history-date">${formatDate(s.date)}</span>
             <span class="history-name">${escapeHtml(s.sequence_name)}${
               s.finished_at && s.word ? `<span class="history-word">${escapeHtml(s.word)}</span>` : ""
-            }</span>
+            }${ratingsText(s) ? `<span class="history-ratings">${ratingsText(s)}</span>` : ""}</span>
             ${s.finished_at && s.word ? "" : `<span class="history-count">${s.done}/${s.total}${skipped}</span>`}
           </a>
           <button class="log-trash" data-delete="${s.id}" aria-label="Delete ${escapeHtml(s.sequence_name)} on ${formatDate(s.date)}">${TRASH_ICON}</button>
@@ -1140,7 +1159,8 @@ function updateProgress(session: Session): void {
 
 function renderFinish(session: Session): string {
   return session.finished_at
-    ? `<div class="finished-row"><span class="finished-stamp">Finished!</span>
+    ? `${ratingsText(session) ? `<p class="finished-ratings">${ratingsText(session)}</p>` : ""}
+       <div class="finished-row"><span class="finished-stamp">Finished!</span>
          <button id="reopen" class="link-button">Reopen</button></div>`
     : `<button id="finish" class="start finish sticker">Finish</button>`;
 }
@@ -1200,17 +1220,40 @@ async function renderSession(id: number): Promise<void> {
         .join("");
       openSheet(
         "How'd it go?",
-        `<p class="sheet-label">Pick a word for this one.</p>
+        `${RATINGS.map(
+          ({ field, label }) => `
+          <div class="rating" data-rating="${field}">
+            <span class="rating-label">${label}</span>
+            <span class="rating-stars">${[1, 2, 3, 4, 5]
+              .map((n) => `<button class="rating-star" data-value="${n}" aria-label="${label} ${n} of 5">★</button>`)
+              .join("")}</span>
+          </div>`
+        ).join("")}
+         <p class="sheet-label">Pick a word for this one.</p>
          <div class="chips word-chips">${chips}</div>
          <button class="link-button skip-word">Skip</button>`,
         (sheet, close) => {
+          // Optional: tap a star to rate, tap the same star again to clear
+          const ratings: Record<RatingField, number | null> = { effort: null, conscientiousness: null };
+          sheet.querySelectorAll<HTMLElement>("[data-rating]").forEach((row) => {
+            const field = row.dataset.rating as RatingField;
+            const stars = row.querySelectorAll<HTMLButtonElement>(".rating-star");
+            stars.forEach((star) =>
+              star.addEventListener("click", () => {
+                const value = Number(star.dataset.value);
+                ratings[field] = ratings[field] === value ? null : value;
+                stars.forEach((s) => s.classList.toggle("on", Number(s.dataset.value) <= (ratings[field] ?? 0)));
+              })
+            );
+          });
           const finish = async (word: string | null, from: HTMLElement) => {
             sheet.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = true));
-            const body: Record<string, unknown> = { finished: true };
+            const body: Record<string, unknown> = { finished: true, ...ratings };
             if (word) body.word = word;
             if (await save(`/sessions/${session.id}`, body)) {
               session.finished_at = new Date().toISOString();
               session.word = word;
+              Object.assign(session, ratings);
               confetti(from, 60);
               document.getElementById("finish-area")!.innerHTML = renderFinish(session);
               updateProgress(session);

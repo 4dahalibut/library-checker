@@ -15,6 +15,7 @@ import {
   setSessionSetReps,
   setSessionFinished,
   setSessionWord,
+  setSessionRating,
   pastNotes,
   unknownLadders,
   unknownSequences,
@@ -413,9 +414,10 @@ workoutRouter.put("/api/sessions/:id/items/:itemId/sets/:set", (req, res) => {
 });
 
 workoutRouter.patch("/api/sessions/:id", (req, res) => {
-  const { notes, finished, word } = req.body ?? {};
+  const { notes, finished, word, effort, conscientiousness } = req.body ?? {};
   const id = Number(req.params.id);
-  if (notes === undefined && finished === undefined && word === undefined) {
+  const ratings = { effort, conscientiousness };
+  if ([notes, finished, word, effort, conscientiousness].every((v) => v === undefined)) {
     res.status(400).json({ error: "Nothing to update" });
     return;
   }
@@ -431,7 +433,16 @@ workoutRouter.patch("/api/sessions/:id", (req, res) => {
     res.status(400).json({ error: "word must be short text or null" });
     return;
   }
+  for (const [field, value] of Object.entries(ratings)) {
+    if (value !== undefined && value !== null && !(Number.isInteger(value) && value >= 1 && value <= 5)) {
+      res.status(400).json({ error: `${field} must be 1 to 5 or null` });
+      return;
+    }
+  }
   const found =
+    Object.entries(ratings).every(
+      ([field, value]) => value === undefined || setSessionRating(id, field as keyof typeof ratings, value)
+    ) &&
     (notes === undefined || updateSessionNotes(id, notes)) &&
     (finished === undefined || setSessionFinished(id, finished)) &&
     (word === undefined || setSessionWord(id, word === null ? null : word.trim()));

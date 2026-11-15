@@ -752,6 +752,58 @@ button.past-note {
   margin-top: 4px;
 }
 
+.rating {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+  margin-top: 12px;
+}
+
+.rating-label {
+  font-weight: 800;
+}
+
+.rating-stars {
+  display: flex;
+  gap: 2px;
+}
+
+.rating-star {
+  font-size: 1.9rem;
+  line-height: 1;
+  padding: 2px 3px;
+  color: var(--dots);
+  -webkit-text-stroke: 1.5px var(--ink);
+  transition: transform 0.12s;
+}
+
+.rating-star.on {
+  color: var(--sun);
+}
+
+.rating-star:active {
+  transform: scale(1.2);
+}
+
+.rating-pair {
+  white-space: nowrap;
+}
+
+.history-ratings,
+.finished-ratings {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.finished-ratings {
+  margin-top: 24px;
+  text-align: center;
+  font-size: 0.9rem;
+}
+
 .word-chip:nth-child(3n + 1) {
   transform: rotate(-2deg);
 }

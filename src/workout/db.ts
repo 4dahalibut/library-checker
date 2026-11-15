@@ -277,6 +277,15 @@ const MIGRATIONS: (() => void)[] = [
       ALTER TABLE sessions ADD COLUMN word TEXT CHECK (word IS NULL OR length(word) BETWEEN 1 AND 40);
     `);
   },
+
+  // 5: self-ratings out of 5 picked at Finish
+  () => {
+    workoutDb.exec(`
+      ALTER TABLE sessions ADD COLUMN effort INTEGER CHECK (effort IS NULL OR effort BETWEEN 1 AND 5);
+      ALTER TABLE sessions ADD COLUMN conscientiousness INTEGER
+        CHECK (conscientiousness IS NULL OR conscientiousness BETWEEN 1 AND 5);
+    `);
+  },
 ];
 
 function migrate(): void {
@@ -682,6 +691,8 @@ export interface SessionSummary {
   date: string;
   finished_at: string | null;
   word: string | null;
+  effort: number | null;
+  conscientiousness: number | null;
   total: number;
   done: number;
   skipped: number;
@@ -742,6 +753,8 @@ export interface Session {
   notes: string;
   finished_at: string | null;
   word: string | null;
+  effort: number | null;
+  conscientiousness: number | null;
   /** Session notes from the last time this sequence was done before this session */
   last_session_note: LatestNote | null;
   items: SessionItem[];
@@ -792,8 +805,8 @@ function totalSets(item: { target_sets: number | null; extra_side: Side | null }
 export function listSessions(limit = 30): SessionSummary[] {
   return workoutDb
     .prepare(
-      `SELECT s.id, s.sequence_id, s.sequence_name, s.date, s.finished_at, s.word,
-              COUNT(i.id) AS total,
+      `SELECT s.id, s.sequence_id, s.sequence_name, s.date, s.finished_at, s.word, s.effort,
+              s.conscientiousness, COUNT(i.id) AS total,
               COALESCE(SUM(CASE WHEN ${DONE_SQL} THEN 1 ELSE 0 END), 0) AS done,
               COALESCE(SUM(i.skipped), 0) AS skipped
        FROM sessions s LEFT JOIN session_items i ON i.session_id = s.id
@@ -806,7 +819,7 @@ export function listSessions(limit = 30): SessionSummary[] {
 
 export function getSession(id: number): Session | null {
   const session = workoutDb
-    .prepare("SELECT id, sequence_id, sequence_name, date, notes, finished_at, word FROM sessions WHERE id = ?")
+    .prepare("SELECT id, sequence_id, sequence_name, date, notes, finished_at, word, effort, conscientiousness FROM sessions WHERE id = ?")
     .get(id) as Omit<Session, "items" | "last_session_note"> | undefined;
   if (!session) return null;
   const items = workoutDb
@@ -974,6 +987,11 @@ export const setSessionSetReps = workoutDb.transaction(
 
 export function updateSessionNotes(id: number, notes: string): boolean {
   return workoutDb.prepare("UPDATE sessions SET notes = ? WHERE id = ?").run(notes, id).changes > 0;
+}
+
+/** A self-rating out of 5 picked at Finish (null clears it) */
+export function setSessionRating(id: number, field: "effort" | "conscientiousness", value: number | null): boolean {
+  return workoutDb.prepare(`UPDATE sessions SET ${field} = ? WHERE id = ?`).run(value, id).changes > 0;
 }
 
 /** The word picked at Finish (null clears it) */
