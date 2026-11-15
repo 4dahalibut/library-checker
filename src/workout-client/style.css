@@ -179,7 +179,6 @@ h2 {
 
 .log-trash.armed {
   color: var(--danger);
-  text-decoration: underline wavy;
 }
 
 .history-date {
@@ -413,7 +412,8 @@ a.session-pill:active {
   font-weight: 800;
   color: var(--ink);
   padding: 8px 4px;
-  text-decoration: underline wavy var(--pop);
+  text-decoration: underline;
+  text-decoration-thickness: 1.5px;
   text-underline-offset: 4px;
 }
 
@@ -647,11 +647,6 @@ button.rung-chip:active {
   color: var(--ink);
 }
 
-.guide summary span {
-  text-decoration: underline wavy var(--pop);
-  text-underline-offset: 4px;
-}
-
 .guide summary::-webkit-details-marker {
   display: none;
 }
@@ -846,7 +841,7 @@ body::before {
 }
 
 .exercise.skipped h3 {
-  text-decoration: line-through wavy var(--muted);
+  text-decoration: line-through var(--muted);
 }
 
 /* Rubber stamp on finished or skipped cards, beside the target */
@@ -1160,7 +1155,6 @@ input::placeholder {
 
 .delete.armed {
   font-weight: 800;
-  text-decoration: underline wavy;
 }
 
 /* --- Confetti --- */
