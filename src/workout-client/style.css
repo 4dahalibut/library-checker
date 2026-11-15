@@ -746,6 +746,40 @@ button.past-note {
   white-space: pre-wrap;
 }
 
+/* --- Session words --- */
+
+.word-chips {
+  margin-top: 4px;
+}
+
+.word-chip:nth-child(3n + 1) {
+  transform: rotate(-2deg);
+}
+
+.word-chip:nth-child(3n + 2) {
+  transform: rotate(1.5deg);
+}
+
+.skip-word {
+  display: block;
+  margin: 14px auto 0;
+  color: var(--muted);
+}
+
+.pill-status.word {
+  font-family: var(--display);
+  font-variation-settings: "SOFT" 100, "WONK" 1;
+  font-style: italic;
+}
+
+.history-word {
+  font-family: var(--display);
+  font-variation-settings: "SOFT" 100, "WONK" 1;
+  font-style: italic;
+  font-weight: 700;
+  color: var(--done-ink);
+}
+
 /* --- Finish --- */
 
 .finished-row {

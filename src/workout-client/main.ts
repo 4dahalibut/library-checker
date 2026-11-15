@@ -67,6 +67,7 @@ interface SessionSummary {
   sequence_name: string;
   date: string;
   finished_at: string | null;
+  word: string | null;
   total: number;
   done: number;
   skipped: number;
@@ -119,6 +120,7 @@ interface Session {
   date: string;
   notes: string;
   finished_at: string | null;
+  word: string | null;
   last_session_note: LatestNote | null;
   items: SessionItem[];
 }
@@ -127,7 +129,7 @@ interface WeekItem {
   sequenceId: string;
   name: string;
   optional: boolean;
-  session: { id: number; finished: boolean; done: number; total: number } | null;
+  session: { id: number; finished: boolean; word: string | null; done: number; total: number } | null;
 }
 
 interface WeekDay {
@@ -137,7 +139,15 @@ interface WeekDay {
   isPast: boolean;
   changed: boolean;
   items: WeekItem[];
-  extras: { id: number; sequenceId: string; sequenceName: string; finished: boolean; done: number; total: number }[];
+  extras: {
+    id: number;
+    sequenceId: string;
+    sequenceName: string;
+    finished: boolean;
+    word: string | null;
+    done: number;
+    total: number;
+  }[];
 }
 
 interface Week {
@@ -359,6 +369,40 @@ function confetti(from: HTMLElement, count = 18): void {
   }
 }
 
+// --- Words for how a session went ---
+// A dozen are drawn each time from across the range, so there's always one that fits
+
+const WORD_GROUPS: string[][] = [
+  ["Electric", "Unstoppable", "Zippy", "Beastly", "Locked-in", "Feisty", "On fire"],
+  ["Steady", "Crisp", "Tidy", "Grounded", "Smooth", "Dialed", "Solid"],
+  ["Meh", "Wobbly", "Lukewarm", "Foggy", "Clunky", "So-so"],
+  ["Spicy", "Gritty", "Sweaty", "Scrappy", "Hard-won", "Toasty"],
+  ["Sleepy", "Sluggish", "Creaky", "Noodly", "Running on fumes"],
+  ["Speedy", "Rushed", "Snack-sized", "Bite-sized", "Express"],
+  ["Achy", "Gentle", "Careful", "Tender", "Easy does it"],
+  ["Playful", "Joyful", "Bouncy", "Groovy", "Sparkly", "Buttery"],
+];
+
+function pickWords(count = 12): string[] {
+  const shuffle = <T,>(list: T[]) => {
+    const copy = [...list];
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
+  };
+  const groups = WORD_GROUPS.map(shuffle);
+  const picked: string[] = [];
+  // Round-robin across the groups so every kind of day is represented
+  for (let round = 0; picked.length < count; round++) {
+    for (const group of shuffle(groups)) {
+      if (picked.length < count && group[round]) picked.push(group[round]);
+    }
+  }
+  return shuffle(picked);
+}
+
 // --- Sheet (a sticker that slides up for picking things) ---
 
 function openSheet(title: string, body: string, onOpen: (sheet: HTMLElement, close: () => void) => void): void {
@@ -408,7 +452,7 @@ function sessionPill(item: PillItem, day: WeekDay): string {
           ? "optional"
           : "";
   const status = s?.finished
-    ? `<span class="pill-status">✓</span>`
+    ? `<span class="pill-status${s.word ? " word" : ""}">${s.word ? escapeHtml(s.word) : "✓"}</span>`
     : s
       ? `<span class="pill-status">${s.done}/${s.total}</span>`
       : "";
@@ -453,7 +497,7 @@ async function renderHome(): Promise<void> {
           sequenceId: e.sequenceId,
           name: e.sequenceName,
           optional: false,
-          session: { id: e.id, finished: e.finished, done: e.done, total: e.total },
+          session: { id: e.id, finished: e.finished, word: e.word, done: e.done, total: e.total },
           extra: true,
         })),
       ];
@@ -481,7 +525,11 @@ async function renderHome(): Promise<void> {
           <a class="history-row${s.finished_at ? " complete" : ""}" href="#session-${s.id}">
             <span class="history-date">${formatDate(s.date)}</span>
             <span class="history-name">${escapeHtml(s.sequence_name)}</span>
-            <span class="history-count">${s.done}/${s.total}${skipped}</span>
+            ${
+              s.finished_at && s.word
+                ? `<span class="history-word">${escapeHtml(s.word)}</span>`
+                : `<span class="history-count">${s.done}/${s.total}${skipped}</span>`
+            }
           </a>
           <button class="log-trash" data-delete="${s.id}" aria-label="Delete ${escapeHtml(s.sequence_name)} on ${formatDate(s.date)}">${TRASH_ICON}</button>
         </div>`;
@@ -1080,7 +1128,7 @@ function updateProgress(session: Session): void {
 
 function renderFinish(session: Session): string {
   return session.finished_at
-    ? `<div class="finished-row"><span class="finished-stamp">Finished!</span>
+    ? `<div class="finished-row"><span class="finished-stamp">${session.word ? escapeHtml(session.word) : "Finished!"}</span>
          <button id="reopen" class="link-button">Reopen</button></div>`
     : `<button id="finish" class="start finish sticker">Finish</button>`;
 }
@@ -1133,22 +1181,45 @@ async function renderSession(id: number): Promise<void> {
   bindPastNotes(session);
 
   const bindFinish = () => {
-    document.getElementById("finish")?.addEventListener("click", async (e) => {
-      const btn = e.currentTarget as HTMLButtonElement;
-      btn.disabled = true;
-      if (await save(`/sessions/${session.id}`, { finished: true })) {
-        session.finished_at = new Date().toISOString();
-        confetti(btn, 60);
-        document.getElementById("finish-area")!.innerHTML = renderFinish(session);
-        updateProgress(session);
-        bindFinish();
-        // A beat to see the stamp and confetti, then home
-        setTimeout(() => {
-          if (location.hash === `#session-${session.id}`) location.hash = "";
-        }, 900);
-      } else {
-        btn.disabled = false;
-      }
+    // Finish asks for a word to sum the session up, then heads home
+    document.getElementById("finish")?.addEventListener("click", () => {
+      const chips = pickWords()
+        .map((w) => `<button class="chip word-chip" data-word="${escapeHtml(w)}">${escapeHtml(w)}</button>`)
+        .join("");
+      openSheet(
+        "How'd it go?",
+        `<p class="sheet-label">Pick a word for this one.</p>
+         <div class="chips word-chips">${chips}</div>
+         <button class="link-button skip-word">Skip</button>`,
+        (sheet, close) => {
+          const finish = async (word: string | null, from: HTMLElement) => {
+            sheet.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = true));
+            const body: Record<string, unknown> = { finished: true };
+            if (word) body.word = word;
+            if (await save(`/sessions/${session.id}`, body)) {
+              session.finished_at = new Date().toISOString();
+              session.word = word;
+              confetti(from, 60);
+              document.getElementById("finish-area")!.innerHTML = renderFinish(session);
+              updateProgress(session);
+              bindFinish();
+              // A beat to see the confetti, then home
+              setTimeout(() => {
+                close();
+                if (location.hash === `#session-${session.id}`) location.hash = "";
+              }, 900);
+            } else {
+              sheet.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = false));
+            }
+          };
+          sheet.querySelectorAll<HTMLButtonElement>("[data-word]").forEach((chip) =>
+            chip.addEventListener("click", () => finish(chip.dataset.word!, chip))
+          );
+          sheet.querySelector<HTMLButtonElement>(".skip-word")!.addEventListener("click", (e) =>
+            finish(null, e.currentTarget as HTMLElement)
+          );
+        }
+      );
     });
     document.getElementById("reopen")?.addEventListener("click", async () => {
       if (await save(`/sessions/${session.id}`, { finished: false })) {

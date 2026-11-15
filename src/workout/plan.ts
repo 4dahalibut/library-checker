@@ -10,7 +10,7 @@ export interface WeekItem {
   name: string;
   optional: boolean;
   /** The session logged for it that day, if any */
-  session: { id: number; finished: boolean; done: number; total: number } | null;
+  session: { id: number; finished: boolean; word: string | null; done: number; total: number } | null;
 }
 
 export interface WeekDay {
@@ -91,6 +91,7 @@ export function buildWeek(input: {
         session: session && {
           id: session.id,
           finished: session.finished,
+          word: session.word,
           done: session.done,
           total: session.total,
         },

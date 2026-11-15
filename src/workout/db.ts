@@ -270,6 +270,13 @@ const MIGRATIONS: (() => void)[] = [
       );
     `);
   },
+
+  // 4: a word picked at Finish to describe how the session went
+  () => {
+    workoutDb.exec(`
+      ALTER TABLE sessions ADD COLUMN word TEXT CHECK (word IS NULL OR length(word) BETWEEN 1 AND 40);
+    `);
+  },
 ];
 
 function migrate(): void {
@@ -674,6 +681,7 @@ export interface SessionSummary {
   sequence_name: string;
   date: string;
   finished_at: string | null;
+  word: string | null;
   total: number;
   done: number;
   skipped: number;
@@ -733,6 +741,7 @@ export interface Session {
   date: string;
   notes: string;
   finished_at: string | null;
+  word: string | null;
   /** Session notes from the last time this sequence was done before this session */
   last_session_note: LatestNote | null;
   items: SessionItem[];
@@ -783,7 +792,7 @@ function totalSets(item: { target_sets: number | null; extra_side: Side | null }
 export function listSessions(limit = 30): SessionSummary[] {
   return workoutDb
     .prepare(
-      `SELECT s.id, s.sequence_id, s.sequence_name, s.date, s.finished_at,
+      `SELECT s.id, s.sequence_id, s.sequence_name, s.date, s.finished_at, s.word,
               COUNT(i.id) AS total,
               COALESCE(SUM(CASE WHEN ${DONE_SQL} THEN 1 ELSE 0 END), 0) AS done,
               COALESCE(SUM(i.skipped), 0) AS skipped
@@ -797,7 +806,7 @@ export function listSessions(limit = 30): SessionSummary[] {
 
 export function getSession(id: number): Session | null {
   const session = workoutDb
-    .prepare("SELECT id, sequence_id, sequence_name, date, notes, finished_at FROM sessions WHERE id = ?")
+    .prepare("SELECT id, sequence_id, sequence_name, date, notes, finished_at, word FROM sessions WHERE id = ?")
     .get(id) as Omit<Session, "items" | "last_session_note"> | undefined;
   if (!session) return null;
   const items = workoutDb
@@ -967,6 +976,11 @@ export function updateSessionNotes(id: number, notes: string): boolean {
   return workoutDb.prepare("UPDATE sessions SET notes = ? WHERE id = ?").run(notes, id).changes > 0;
 }
 
+/** The word picked at Finish (null clears it) */
+export function setSessionWord(id: number, word: string | null): boolean {
+  return workoutDb.prepare("UPDATE sessions SET word = ? WHERE id = ?").run(word, id).changes > 0;
+}
+
 export function setSessionFinished(id: number, finished: boolean): boolean {
   return (
     workoutDb
@@ -984,6 +998,7 @@ export interface DaySession {
   sequenceId: string;
   sequenceName: string;
   finished: boolean;
+  word: string | null;
   done: number;
   total: number;
 }
@@ -991,7 +1006,7 @@ export interface DaySession {
 export function listSessionsBetween(from: string, to: string): DaySession[] {
   const rows = workoutDb
     .prepare(
-      `SELECT s.id, s.date, s.sequence_id, s.sequence_name, s.finished_at, COUNT(i.id) AS total,
+      `SELECT s.id, s.date, s.sequence_id, s.sequence_name, s.finished_at, s.word, COUNT(i.id) AS total,
               COALESCE(SUM(CASE WHEN ${DONE_SQL} THEN 1 ELSE 0 END), 0) AS done
        FROM sessions s LEFT JOIN session_items i ON i.session_id = s.id
        WHERE s.date BETWEEN ? AND ? GROUP BY s.id ORDER BY s.date, s.id`
@@ -1002,6 +1017,7 @@ export function listSessionsBetween(from: string, to: string): DaySession[] {
     sequence_id: string;
     sequence_name: string;
     finished_at: string | null;
+    word: string | null;
     done: number;
     total: number;
   }[];
@@ -1011,6 +1027,7 @@ export function listSessionsBetween(from: string, to: string): DaySession[] {
     sequenceId: r.sequence_id,
     sequenceName: r.sequence_name,
     finished: r.finished_at !== null,
+    word: r.word,
     done: r.done,
     total: r.total,
   }));

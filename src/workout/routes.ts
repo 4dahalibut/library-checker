@@ -14,6 +14,7 @@ import {
   archiveSequence,
   setSessionSetReps,
   setSessionFinished,
+  setSessionWord,
   pastNotes,
   unknownLadders,
   unknownSequences,
@@ -412,9 +413,9 @@ workoutRouter.put("/api/sessions/:id/items/:itemId/sets/:set", (req, res) => {
 });
 
 workoutRouter.patch("/api/sessions/:id", (req, res) => {
-  const { notes, finished } = req.body ?? {};
+  const { notes, finished, word } = req.body ?? {};
   const id = Number(req.params.id);
-  if (notes === undefined && finished === undefined) {
+  if (notes === undefined && finished === undefined && word === undefined) {
     res.status(400).json({ error: "Nothing to update" });
     return;
   }
@@ -426,9 +427,14 @@ workoutRouter.patch("/api/sessions/:id", (req, res) => {
     res.status(400).json({ error: "finished must be true or false" });
     return;
   }
+  if (word !== undefined && word !== null && !(typeof word === "string" && word.trim().length > 0 && word.length <= 40)) {
+    res.status(400).json({ error: "word must be short text or null" });
+    return;
+  }
   const found =
     (notes === undefined || updateSessionNotes(id, notes)) &&
-    (finished === undefined || setSessionFinished(id, finished));
+    (finished === undefined || setSessionFinished(id, finished)) &&
+    (word === undefined || setSessionWord(id, word === null ? null : word.trim()));
   if (!found) {
     res.status(404).json({ error: "Session not found" });
     return;
