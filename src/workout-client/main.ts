@@ -536,18 +536,14 @@ function heroCard(): string {
     </figure>`;
 }
 
-// Home opens on just today; tapping it shows the whole week (kept while the app is open)
+// Home opens on just today; tapping it shows the week around it (kept while the app is open)
 let weekOpen = false;
-// How many weeks after this one show when the week is open ("Show another week" adds one)
-let laterWeeks = 1;
-const MAX_LATER_WEEKS = 8;
 
-function weekRange(week: Week): string {
-  const [first, last] = [week.days[0].date, week.days[6].date];
-  const month = (d: string) => MONTHS[Number(d.slice(5, 7)) - 1];
-  return month(first) === month(last)
-    ? `${month(first)} ${dayNumber(first)}–${dayNumber(last)}`
-    : `${month(first)} ${dayNumber(first)} – ${month(last)} ${dayNumber(last)}`;
+/** The date this many days from a YYYY-MM-DD date */
+function shiftDate(date: string, days: number): string {
+  const d = new Date(`${date}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
 }
 
 async function renderHome(keepScroll = false): Promise<void> {
@@ -556,24 +552,23 @@ async function renderHome(keepScroll = false): Promise<void> {
   const today = localToday();
   let sequences: Sequence[];
   let sessions: SessionSummary[];
-  let weeks: Week[];
+  let week: Week;
   // Pain reports go in the Log too; the Log still loads if they don't
   const painLoad = api<{ reports: PainReport[] }>("/pain?limit=100").catch(() => ({ reports: [] as PainReport[] }));
   let pains: PainReport[];
   try {
-    let weekResults: { week: Week }[];
-    [{ sequences }, { sessions }, ...weekResults] = await Promise.all([
+    // Three days back, today, three days ahead
+    [{ sequences }, { sessions }, { week }] = await Promise.all([
       api<{ sequences: Sequence[] }>("/sequences"),
       api<{ sessions: SessionSummary[] }>("/sessions"),
-      ...Array.from({ length: laterWeeks + 1 }, (_, offset) => api<{ week: Week }>(`/week?today=${today}&offset=${offset}`)),
-    ] as [Promise<{ sequences: Sequence[] }>, Promise<{ sessions: SessionSummary[] }>, ...Promise<{ week: Week }>[]]);
-    weeks = weekResults.map((r) => r.week);
+      api<{ week: Week }>(`/week?today=${today}&start=${shiftDate(today, -3)}`),
+    ]);
     ({ reports: pains } = await painLoad);
   } catch {
     app.innerHTML = `<p class="loading">Couldn't load workouts. Check your connection and reopen.</p>`;
     return;
   }
-  const allDays = weeks.flatMap((w) => w.days);
+  const allDays = week.days;
 
   const usual = new Map(sequences.map((s) => [s.id, s.typicalMinutes]));
   // What's still ahead that day, from how long each planned session usually takes
@@ -614,15 +609,7 @@ async function renderHome(keepScroll = false): Promise<void> {
         </div>`;
   };
 
-  // This week, then each later week under a divider, all one list so drags can cross weeks
-  const rows = weeks
-    .map((w, offset) => {
-      const divider = offset
-        ? `<div class="week-divider"><span>${offset === 1 ? "Next week" : "Week of"}</span> ${weekRange(w)}</div>`
-        : "";
-      return divider + w.days.map(dayRow).join("");
-    })
-    .join("");
+  const rows = allDays.map(dayRow).join("");
 
   const infoLine = (s: SessionSummary) =>
     // Under a minute means it was logged after the fact, not timed
@@ -677,7 +664,6 @@ async function renderHome(keepScroll = false): Promise<void> {
     <section>
       <h2 id="week-heading">${weekOpen ? "This week" : "Today"}</h2>
       <div class="week-list sticker${weekOpen ? "" : " collapsed"}">${rows}</div>
-      ${laterWeeks < MAX_LATER_WEEKS ? `<button id="more-weeks" class="link-button more-weeks"${weekOpen ? "" : " hidden"}>Show another week</button>` : ""}
     </section>
     <section>
       <h2>Log</h2>
@@ -723,13 +709,6 @@ async function renderHome(keepScroll = false): Promise<void> {
     weekOpen = !weekOpen;
     weekList.classList.toggle("collapsed", !weekOpen);
     document.getElementById("week-heading")!.textContent = weekOpen ? "This week" : "Today";
-    const more = document.getElementById("more-weeks");
-    if (more) more.hidden = !weekOpen;
-  });
-
-  document.getElementById("more-weeks")?.addEventListener("click", () => {
-    laterWeeks = Math.min(laterWeeks + 1, MAX_LATER_WEEKS);
-    renderHome(true);
   });
 
   app.querySelectorAll<HTMLButtonElement>(".week-edit").forEach((btn) => {

@@ -64,7 +64,7 @@ export function weekStart(date: string): string {
 
 export function buildWeek(input: {
   today: string;
-  /** Monday of the week to build; defaults to the week holding today */
+  /** First of the seven days to build; defaults to the Monday of today's week */
   start?: string;
   schedule: Schedule;
   /** Dates changed by hand */
@@ -79,8 +79,9 @@ export function buildWeek(input: {
   const end = addDays(start, 6);
   const nameOf = (id: string) => names.get(id) ?? sessions.find((s) => s.sequenceId === id)?.sequenceName ?? id;
 
-  const days: WeekDay[] = Array.from({ length: 7 }, (_, weekday) => {
-    const date = addDays(start, weekday);
+  const days: WeekDay[] = Array.from({ length: 7 }, (_, i) => {
+    const date = addDays(start, i);
+    const weekday = (parseDate(date).getUTCDay() + 6) % 7;
     const plan = dayPlans.get(date) ?? schedule.days[weekday];
     const unmatched = sessions.filter((s) => s.date === date);
     const items = plan.map((p): WeekItem => {

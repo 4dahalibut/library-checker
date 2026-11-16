@@ -547,7 +547,12 @@ workoutRouter.get("/api/week", (req, res) => {
     res.status(400).json({ error: "offset must be a whole number of weeks" });
     return;
   }
-  const start = addDays(weekStart(today), offset * 7);
+  // Seven days from `start` when given (home centres them on today), else a Monday-to-Sunday week
+  if (req.query.start !== undefined && (typeof req.query.start !== "string" || !DATE_RE.test(req.query.start))) {
+    res.status(400).json({ error: "start must be YYYY-MM-DD" });
+    return;
+  }
+  const start = typeof req.query.start === "string" ? req.query.start : addDays(weekStart(today), offset * 7);
   const end = addDays(start, 6);
   const names = new Map(
     (workoutDb.prepare("SELECT id, name FROM sequences").all() as { id: string; name: string }[]).map((r) => [
