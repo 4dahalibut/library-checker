@@ -95,6 +95,7 @@ interface SessionItem {
   weight: number | null;
   seconds: number | null;
   notes: string;
+  exercise_id: string | null;
   ladder_id: string | null;
   rung: number | null;
   weighted: number;
@@ -1094,6 +1095,17 @@ function cueHtml(cue: string): string {
 }
 
 /**
+ * Timed holds get a ▶ that opens the timer panel (countdown from the top of the range,
+ * or a stopwatch)
+ */
+function renderHoldButton(item: SessionItem): string {
+  if (item.target_seconds === null || item.to_failure) return "";
+  return `<button class="hold-start" aria-label="Open the timer">▶ ${formatDuration(holdSeconds(item), null)}${
+    item.per_side ? "/side" : ""
+  }</button>`;
+}
+
+/**
  * Everything about how to do it, folded away until wanted: the rung's own note
  * (e.g. "Knee on bench"), then the exercise's description and cues
  */
@@ -1151,7 +1163,7 @@ function renderItem(item: SessionItem, ladders: Map<string, Ladder>): string {
       </div>
       ${renderGuide(item)}
       ${renderHitTop(item, ladders)}
-      <div class="sets">${renderSetButtons(item)}</div>
+      <div class="sets">${renderSetButtons(item)}${renderHoldButton(item)}</div>
       <div class="inputs">
         ${
           item.weighted
@@ -1395,6 +1407,20 @@ async function renderSession(id: number): Promise<void> {
         startRest(session.rest_seconds);
       }
     };
+
+    // The timer panel ticks sets through the same path as tapping a circle (minus the rest pill)
+    card.querySelector<HTMLButtonElement>(".hold-start")?.addEventListener("click", () =>
+      openHoldPanel(item, session, (n) => {
+        item.sets_done = n;
+        const body: Record<string, unknown> = { sets_done: n };
+        if (item.skipped) {
+          item.skipped = 0;
+          body.skipped = false;
+        }
+        refreshCard();
+        save(path, body);
+      })
+    );
 
     // Tapping the last finished set undoes it; tapping any other set fills up to it
     card.querySelectorAll<HTMLButtonElement>(".set").forEach((btn) => {
@@ -1673,10 +1699,10 @@ function stopRest(): void {
   restTimer.classList.remove("go");
 }
 
-function beep(): void {
+function beep(times = 2): void {
   if (!audio) return;
   const now = audio.currentTime;
-  [0, 0.25].forEach((offset) => {
+  Array.from({ length: times }, (_, i) => i * 0.25).forEach((offset) => {
     const osc = audio!.createOscillator();
     const gain = audio!.createGain();
     osc.frequency.value = 880;
@@ -1705,15 +1731,19 @@ function paintRest(): void {
   restTimer.style.setProperty("--left", String(left / restTotal));
 }
 
-function startRest(seconds: number): void {
-  stopRest();
-  // Created during the tap, so the browser lets it play the end beep later
+/** Created during a tap, so the browser lets it play beeps later */
+function unlockAudio(): void {
   try {
     audio ??= new AudioContext();
     void audio.resume();
   } catch {
     audio = null;
   }
+}
+
+function startRest(seconds: number): void {
+  stopRest();
+  unlockAudio();
   restTotal = seconds;
   restEnd = Date.now() + seconds * 1000;
   restTimer.hidden = false;
@@ -1730,6 +1760,318 @@ document.addEventListener("visibilitychange", () => {
 function leadsSuperset(item: SessionItem, items: SessionItem[]): boolean {
   const match = item.label.match(/^([A-Z])1$/);
   return !!match && items.some((i) => i.label === `${match[1]}2`);
+}
+
+// --- Timer panel for timed holds ---
+// Opens from a timed exercise's ▶ button. Countdown runs each set from the top of the
+// range (get set, hold, switch sides, hold) and ticks it; hands-free carries on through
+// every set with rest between. Stopwatch is a free-running clock for doing holds in your
+// own time and ticking them yourself.
+
+type HoldStep = { kind: "prep" | "hold" | "rest"; seconds: number; label: string };
+
+const HOLD_PREP_SECONDS = 5;
+const HANDS_FREE_KEY = "workout-hold-hands-free";
+const modeKey = (item: SessionItem) => `workout-hold-mode:${item.exercise_id ?? item.name}`;
+
+function readStored(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStored(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Remembering is a convenience; nothing breaks without it
+  }
+}
+
+let wakeLock: { release: () => Promise<void> } | null = null;
+
+async function keepAwake(on: boolean): Promise<void> {
+  try {
+    if (on && !wakeLock) {
+      wakeLock = await (navigator as unknown as { wakeLock?: { request: (t: string) => Promise<typeof wakeLock> } }).wakeLock?.request("screen") ?? null;
+    } else if (!on && wakeLock) {
+      await wakeLock.release();
+      wakeLock = null;
+    }
+  } catch {
+    wakeLock = null;
+  }
+}
+
+function holdSeconds(item: SessionItem): number {
+  return item.target_seconds_max ?? item.target_seconds ?? 0;
+}
+
+/** One set's steps: get set and the hold, with a switch and second side for per-side holds */
+function setSteps(item: SessionItem, setIndex: number): HoldStep[] {
+  const seconds = holdSeconds(item);
+  const isExtra = !!item.extra_side && setIndex === totalSets(item) - 1;
+  if (item.per_side && !isExtra) {
+    return [
+      { kind: "prep", seconds: HOLD_PREP_SECONDS, label: "Get set" },
+      { kind: "hold", seconds, label: "Side 1" },
+      { kind: "prep", seconds: HOLD_PREP_SECONDS, label: "Switch sides" },
+      { kind: "hold", seconds, label: "Side 2" },
+    ];
+  }
+  return [
+    { kind: "prep", seconds: HOLD_PREP_SECONDS, label: "Get set" },
+    { kind: "hold", seconds, label: isExtra ? `${item.extra_side === "left" ? "Left" : "Right"} side` : "Hold" },
+  ];
+}
+
+function openHoldPanel(item: SessionItem, session: Session, applySets: (n: number) => void): void {
+  stopRest();
+  unlockAudio();
+  // Superset exercises (A1/A2) alternate with their partner, so no hands-free chaining
+  const pair = /^[A-Z][12]$/;
+  const superset =
+    pair.test(item.label) && session.items.some((i) => i !== item && pair.test(i.label) && i.label[0] === item.label[0]);
+  const restBetween = session.rest_seconds > 0 ? session.rest_seconds : 10;
+  let mode: "countdown" | "stopwatch" = readStored(modeKey(item)) === "stopwatch" ? "stopwatch" : "countdown";
+  // Hidden (and off) for superset exercises
+  let handsFree = !superset && readStored(HANDS_FREE_KEY) === "1";
+
+  // Countdown state
+  let steps: HoldStep[] = [];
+  let stepIndex = 0;
+  let stepEnd = 0;
+  let pausedLeft: number | null = null;
+  // Stopwatch state
+  let swStart = 0;
+  let swBanked = 0;
+  let swRunning = false;
+  let tick = 0;
+
+  openSheet(
+    item.name,
+    `<div class="holdp">
+       <p class="holdp-target">${item.label ? `<span class="label-tag">${escapeHtml(item.label)}</span> ` : ""}${sessionTarget(item)}</p>
+       <div class="holdp-modes" role="tablist">
+         <button class="holdp-mode" data-mode="countdown" role="tab">Countdown</button>
+         <button class="holdp-mode" data-mode="stopwatch" role="tab">Stopwatch</button>
+       </div>
+       <div class="holdp-display">
+         <span class="holdp-status"></span>
+         <span class="holdp-time"></span>
+       </div>
+       <div class="sets holdp-sets"></div>
+       <label class="holdp-auto"${superset ? " hidden" : ""}>
+         <input type="checkbox" /> Hands-free: run every set with ${restBetween}s rest between
+       </label>
+       <div class="holdp-controls">
+         <button class="holdp-go start sticker"></button>
+         <button class="holdp-reset chip">Reset</button>
+       </div>
+     </div>`,
+    (sheet, close) => {
+      const statusEl = sheet.querySelector<HTMLElement>(".holdp-status")!;
+      const timeEl = sheet.querySelector<HTMLElement>(".holdp-time")!;
+      const display = sheet.querySelector<HTMLElement>(".holdp-display")!;
+      const setsEl = sheet.querySelector<HTMLElement>(".holdp-sets")!;
+      const goBtn = sheet.querySelector<HTMLButtonElement>(".holdp-go")!;
+      const resetBtn = sheet.querySelector<HTMLButtonElement>(".holdp-reset")!;
+      const autoBox = sheet.querySelector<HTMLInputElement>(".holdp-auto input")!;
+      const autoRow = sheet.querySelector<HTMLElement>(".holdp-auto")!;
+      autoBox.checked = handsFree;
+
+      const allDone = () => item.sets_done >= totalSets(item);
+      const running = () => (mode === "countdown" ? steps.length > 0 && pausedLeft === null : swRunning);
+
+      const renderSets = () => {
+        setsEl.innerHTML = renderSetButtons(item);
+        setsEl.querySelectorAll<HTMLButtonElement>(".set").forEach((btn) =>
+          btn.addEventListener("click", () => {
+            const n = Number(btn.dataset.set);
+            applySets(item.sets_done === n ? n - 1 : n);
+            renderSets();
+            paint();
+          })
+        );
+      };
+
+      const clockText = (ms: number, tenths: boolean) => {
+        const total = tenths ? Math.floor(ms / 100) : Math.ceil(ms / 1000);
+        const secs = tenths ? Math.floor(total / 10) : total;
+        const base = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+        return tenths ? `${base}.${total % 10}` : base;
+      };
+
+      const paint = () => {
+        sheet.querySelectorAll<HTMLButtonElement>(".holdp-mode").forEach((b) =>
+          b.classList.toggle("on", b.dataset.mode === mode)
+        );
+        autoRow.hidden = superset || mode !== "countdown";
+        if (mode === "stopwatch") {
+          const elapsed = swBanked + (swRunning ? Date.now() - swStart : 0);
+          display.dataset.kind = swRunning ? "hold" : "";
+          statusEl.textContent = swRunning ? "Running" : elapsed ? "Paused" : "Ready";
+          timeEl.textContent = clockText(elapsed, true);
+          goBtn.textContent = swRunning ? "Pause" : elapsed ? "Resume" : "Start";
+          goBtn.disabled = false;
+          return;
+        }
+        const step = steps[stepIndex];
+        if (!step) {
+          display.dataset.kind = "";
+          statusEl.textContent = allDone() ? "All done ✓" : `Set ${item.sets_done + 1} of ${totalSets(item)}`;
+          timeEl.textContent = clockText(holdSeconds(item) * 1000, false);
+          goBtn.textContent = "Start";
+          goBtn.disabled = allDone();
+          return;
+        }
+        const left = pausedLeft ?? Math.max(0, stepEnd - Date.now());
+        display.dataset.kind = step.kind;
+        statusEl.textContent = step.kind === "hold" ? `${step.label} · set ${item.sets_done + 1}` : step.label;
+        timeEl.textContent = clockText(left, false);
+        goBtn.textContent = step.kind === "rest" ? "Skip rest" : pausedLeft !== null ? "Resume" : "Pause";
+        goBtn.disabled = false;
+      };
+
+      const stopTicking = () => {
+        clearInterval(tick);
+        tick = 0;
+      };
+      const startTicking = () => {
+        stopTicking();
+        tick = window.setInterval(mode === "stopwatch" ? paint : advance, mode === "stopwatch" ? 100 : 200);
+        void keepAwake(true);
+      };
+
+      // Each step starts when the previous one ended (not when a tick noticed), so a
+      // locked screen doesn't stretch the workout
+      const beginStep = (from = Date.now()) => {
+        stepEnd = from + steps[stepIndex].seconds * 1000;
+        pausedLeft = null;
+      };
+
+      const runSet = (from = Date.now()) => {
+        steps = setSteps(item, item.sets_done);
+        stepIndex = 0;
+        beginStep(from);
+        startTicking();
+        paint();
+      };
+
+      const finishCountdown = () => {
+        steps = [];
+        stopTicking();
+        void keepAwake(false);
+      };
+
+      // Countdown: move through every step that has ended (more than one if the screen
+      // was off); a finished hold sequence ticks the set
+      function advance(): void {
+        while (steps.length && pausedLeft === null && Date.now() >= stepEnd) {
+          const step = steps[stepIndex];
+          const endedAt = stepEnd;
+          if (stepIndex < steps.length - 1) {
+            beep(step.kind === "hold" ? 2 : 1);
+            stepIndex++;
+            beginStep(endedAt);
+            continue;
+          }
+          if (step.kind === "rest") {
+            beep(1);
+            if (handsFree && !allDone()) runSet(endedAt);
+            else finishCountdown();
+            continue;
+          }
+          // The last hold of the set just ended
+          beep(2);
+          applySets(Math.min(item.sets_done + 1, totalSets(item)));
+          renderSets();
+          const rest = handsFree ? restBetween : superset ? 0 : session.rest_seconds;
+          if (allDone() || rest <= 0) {
+            finishCountdown();
+            continue;
+          }
+          steps = [{ kind: "rest", seconds: rest, label: "Rest" }];
+          stepIndex = 0;
+          beginStep(endedAt);
+        }
+        paint();
+      }
+
+      goBtn.addEventListener("click", () => {
+        unlockAudio();
+        if (mode === "stopwatch") {
+          if (swRunning) {
+            swBanked += Date.now() - swStart;
+            swRunning = false;
+            stopTicking();
+            void keepAwake(false);
+          } else {
+            swStart = Date.now();
+            swRunning = true;
+            startTicking();
+          }
+          paint();
+          return;
+        }
+        const step = steps[stepIndex];
+        if (!step || step.kind === "rest") return runSet();
+        if (pausedLeft !== null) {
+          stepEnd = Date.now() + pausedLeft;
+          pausedLeft = null;
+          startTicking();
+        } else if (step) {
+          pausedLeft = Math.max(0, stepEnd - Date.now());
+          stopTicking();
+        }
+        paint();
+      });
+
+      resetBtn.addEventListener("click", () => {
+        stopTicking();
+        void keepAwake(false);
+        steps = [];
+        pausedLeft = null;
+        swBanked = 0;
+        swRunning = false;
+        paint();
+      });
+
+      sheet.querySelectorAll<HTMLButtonElement>(".holdp-mode").forEach((btn) =>
+        btn.addEventListener("click", () => {
+          if (btn.dataset.mode === mode) return;
+          resetBtn.click();
+          mode = btn.dataset.mode as typeof mode;
+          writeStored(modeKey(item), mode);
+          paint();
+        })
+      );
+
+      autoBox.addEventListener("change", () => {
+        handsFree = autoBox.checked;
+        writeStored(HANDS_FREE_KEY, handsFree ? "1" : "0");
+      });
+
+      // Closing stops the panel's clocks; a rest in progress carries on in the small pill
+      const backdrop = sheet.parentElement!;
+      const observer = new MutationObserver(() => {
+        if (document.body.contains(backdrop)) return;
+        observer.disconnect();
+        const step = steps[stepIndex];
+        const restLeft = step?.kind === "rest" && pausedLeft === null ? Math.ceil((stepEnd - Date.now()) / 1000) : 0;
+        stopTicking();
+        void keepAwake(false);
+        if (restLeft > 0) startRest(restLeft);
+      });
+      observer.observe(document.body, { childList: true });
+      void close;
+
+      renderSets();
+      paint();
+    }
+  );
 }
 
 // --- Routing ---

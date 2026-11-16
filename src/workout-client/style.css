@@ -1017,6 +1017,134 @@ button.past-note {
   display: none;
 }
 
+/* --- Timer panel --- */
+
+.hold-start {
+  align-self: center;
+  height: 56px;
+  padding: 0 18px;
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--pop-ink);
+  background: var(--pop);
+  border: 2.5px solid var(--ink);
+  border-radius: 28px;
+  box-shadow: 2px 2px 0 var(--shadow);
+}
+
+.hold-start:active {
+  transform: translate(2px, 2px);
+  box-shadow: none;
+}
+
+.holdp {
+  display: grid;
+  gap: 14px;
+  margin-top: 6px;
+}
+
+.holdp-target {
+  font-weight: 800;
+  color: var(--pop);
+}
+
+.holdp-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 2.5px solid var(--ink);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.holdp-mode {
+  padding: 8px 0;
+  font-weight: 800;
+  color: var(--muted);
+  background: var(--card);
+}
+
+.holdp-mode.on {
+  color: var(--ink);
+  background: var(--sun);
+}
+
+.holdp-display {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 14px 0 16px;
+  border: 2.5px solid var(--ink);
+  border-radius: 18px;
+  background: var(--field);
+  box-shadow: 3px 3px 0 var(--shadow);
+}
+
+.holdp-display[data-kind="hold"] {
+  background: var(--pop);
+  color: var(--pop-ink);
+}
+
+.holdp-display[data-kind="rest"] {
+  background: var(--sun);
+  color: #2b2452;
+}
+
+.holdp-display[data-kind="prep"] {
+  border-style: dashed;
+}
+
+.holdp-status {
+  font-size: 0.85rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.holdp-time {
+  font-family: var(--display);
+  font-variation-settings: "SOFT" 100, "WONK" 1;
+  font-size: 4.2rem;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.holdp-sets {
+  justify-content: center;
+}
+
+.holdp-auto {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+.holdp-auto[hidden] {
+  display: none;
+}
+
+.holdp-auto input {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--pop);
+}
+
+.holdp-controls {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.start.holdp-go {
+  position: static;
+  margin: 0;
+  padding: 12px;
+  font-size: 1.3rem;
+}
+
 .rest-timer.go {
   background: var(--done);
   color: var(--done-ink);
