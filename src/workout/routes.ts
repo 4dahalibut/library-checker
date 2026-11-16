@@ -534,13 +534,19 @@ function parsePlanItems(raw: unknown, where: string): PlanItem[] | string {
 }
 
 // The client sends its own today so the week follows the phone's timezone
+// offset=1 is next week, 2 the week after, and so on (today stays today)
 workoutRouter.get("/api/week", (req, res) => {
   const today = req.query.today;
   if (typeof today !== "string" || !DATE_RE.test(today)) {
     res.status(400).json({ error: "today must be YYYY-MM-DD" });
     return;
   }
-  const start = weekStart(today);
+  const offset = req.query.offset === undefined ? 0 : Number(req.query.offset);
+  if (!Number.isInteger(offset) || offset < -52 || offset > 52) {
+    res.status(400).json({ error: "offset must be a whole number of weeks" });
+    return;
+  }
+  const start = addDays(weekStart(today), offset * 7);
   const end = addDays(start, 6);
   const names = new Map(
     (workoutDb.prepare("SELECT id, name FROM sequences").all() as { id: string; name: string }[]).map((r) => [
@@ -551,6 +557,7 @@ workoutRouter.get("/api/week", (req, res) => {
   res.json({
     week: buildWeek({
       today,
+      start,
       schedule: getSchedule(),
       dayPlans: getDayPlans(start, end),
       sessions: listSessionsBetween(start, end),

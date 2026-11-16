@@ -519,26 +519,40 @@ function heroCard(): string {
 
 // Home opens on just today; tapping it shows the whole week (kept while the app is open)
 let weekOpen = false;
+// How many weeks after this one show when the week is open ("Show another week" adds one)
+let laterWeeks = 1;
+const MAX_LATER_WEEKS = 8;
 
-async function renderHome(): Promise<void> {
-  app.innerHTML = `<p class="loading">Loading…</p>`;
+function weekRange(week: Week): string {
+  const [first, last] = [week.days[0].date, week.days[6].date];
+  const month = (d: string) => MONTHS[Number(d.slice(5, 7)) - 1];
+  return month(first) === month(last)
+    ? `${month(first)} ${dayNumber(first)}–${dayNumber(last)}`
+    : `${month(first)} ${dayNumber(first)} – ${month(last)} ${dayNumber(last)}`;
+}
+
+async function renderHome(keepScroll = false): Promise<void> {
+  const scrollY = window.scrollY;
+  if (!keepScroll) app.innerHTML = `<p class="loading">Loading…</p>`;
   const today = localToday();
   let sequences: Sequence[];
   let sessions: SessionSummary[];
-  let week: Week;
+  let weeks: Week[];
   try {
-    [{ sequences }, { sessions }, { week }] = await Promise.all([
+    let weekResults: { week: Week }[];
+    [{ sequences }, { sessions }, ...weekResults] = await Promise.all([
       api<{ sequences: Sequence[] }>("/sequences"),
       api<{ sessions: SessionSummary[] }>("/sessions"),
-      api<{ week: Week }>(`/week?today=${today}`),
-    ]);
+      ...Array.from({ length: laterWeeks + 1 }, (_, offset) => api<{ week: Week }>(`/week?today=${today}&offset=${offset}`)),
+    ] as [Promise<{ sequences: Sequence[] }>, Promise<{ sessions: SessionSummary[] }>, ...Promise<{ week: Week }>[]]);
+    weeks = weekResults.map((r) => r.week);
   } catch {
     app.innerHTML = `<p class="loading">Couldn't load workouts. Check your connection and reopen.</p>`;
     return;
   }
+  const allDays = weeks.flatMap((w) => w.days);
 
-  const rows = week.days
-    .map((d) => {
+  const dayRow = (d: WeekDay) => {
       const pills: PillItem[] = [
         ...d.items,
         ...d.extras.map((e) => ({
@@ -561,6 +575,15 @@ async function renderHome(): Promise<void> {
           <div class="week-sessions">${content}</div>
           ${d.isPast ? "" : `<button class="week-edit" data-date="${d.date}" aria-label="Change ${dayTitle(d)}">${EDIT_ICON}</button>`}
         </div>`;
+  };
+
+  // This week, then each later week under a divider, all one list so drags can cross weeks
+  const rows = weeks
+    .map((w, offset) => {
+      const divider = offset
+        ? `<div class="week-divider"><span>${offset === 1 ? "Next week" : "Week of"}</span> ${weekRange(w)}</div>`
+        : "";
+      return divider + w.days.map(dayRow).join("");
     })
     .join("");
 
@@ -594,12 +617,14 @@ async function renderHome(): Promise<void> {
     <section>
       <h2 id="week-heading">${weekOpen ? "This week" : "Today"}</h2>
       <div class="week-list sticker${weekOpen ? "" : " collapsed"}">${rows}</div>
+      ${laterWeeks < MAX_LATER_WEEKS ? `<button id="more-weeks" class="link-button more-weeks"${weekOpen ? "" : " hidden"}>Show another week</button>` : ""}
     </section>
     <section>
       <h2>Log</h2>
       ${sessions.length ? `<div class="history sticker">${history}</div>` : history}
     </section>
   `;
+  if (keepScroll) window.scrollTo(0, scrollY);
 
   // Two taps to delete, like inside a session
   app.querySelectorAll<HTMLButtonElement>(".log-trash").forEach((btn) => {
@@ -636,11 +661,18 @@ async function renderHome(): Promise<void> {
     weekOpen = !weekOpen;
     weekList.classList.toggle("collapsed", !weekOpen);
     document.getElementById("week-heading")!.textContent = weekOpen ? "This week" : "Today";
+    const more = document.getElementById("more-weeks");
+    if (more) more.hidden = !weekOpen;
+  });
+
+  document.getElementById("more-weeks")?.addEventListener("click", () => {
+    laterWeeks = Math.min(laterWeeks + 1, MAX_LATER_WEEKS);
+    renderHome(true);
   });
 
   app.querySelectorAll<HTMLButtonElement>(".week-edit").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const day = week.days.find((d) => d.date === btn.dataset.date)!;
+      const day = allDays.find((d) => d.date === btn.dataset.date)!;
       openDaySheet(day, sequences);
     });
   });

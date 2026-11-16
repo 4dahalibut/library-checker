@@ -64,6 +64,8 @@ export function weekStart(date: string): string {
 
 export function buildWeek(input: {
   today: string;
+  /** Monday of the week to build; defaults to the week holding today */
+  start?: string;
   schedule: Schedule;
   /** Dates changed by hand */
   dayPlans: Map<string, PlanItem[]>;
@@ -73,7 +75,7 @@ export function buildWeek(input: {
   names: Map<string, string>;
 }): Week {
   const { today, schedule, dayPlans, sessions, names } = input;
-  const start = weekStart(today);
+  const start = input.start ?? weekStart(today);
   const end = addDays(start, 6);
   const nameOf = (id: string) => names.get(id) ?? sessions.find((s) => s.sequenceId === id)?.sequenceName ?? id;
 

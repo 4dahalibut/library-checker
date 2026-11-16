@@ -286,7 +286,43 @@ h2 {
 }
 
 /* Folded: only today's row shows */
-.week-list.collapsed .week-row:not(.today) {
+.week-list.collapsed .week-row:not(.today),
+.week-list.collapsed .week-divider {
+  display: none;
+}
+
+/* Where one week ends and the next begins */
+.week-divider {
+  padding: 10px 14px 8px;
+  border-top: 2.5px solid var(--ink);
+  background: var(--field);
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.week-divider span {
+  display: inline-block;
+  margin-right: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--sun);
+  color: #2b2452;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.72rem;
+}
+
+.week-divider + .week-row {
+  border-top: none;
+}
+
+.more-weeks {
+  display: block;
+  margin: 8px auto 0;
+}
+
+.more-weeks[hidden] {
   display: none;
 }
 
