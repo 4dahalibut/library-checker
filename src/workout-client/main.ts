@@ -1770,6 +1770,11 @@ function leadsSuperset(item: SessionItem, items: SessionItem[]): boolean {
 
 type HoldStep = { kind: "prep" | "hold" | "rest"; seconds: number; label: string };
 
+/** Hands-free: a loop of arrows, i.e. keep going through every set */
+const REPEAT_ICON = `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none"
+  stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12"/><path d="M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/></svg>`;
+
 const HOLD_PREP_SECONDS = 5;
 const HANDS_FREE_KEY = "workout-hold-hands-free";
 const modeKey = (item: SessionItem) => `workout-hold-mode:${item.exercise_id ?? item.name}`;
@@ -1866,14 +1871,11 @@ function openHoldPanel(item: SessionItem, session: Session, applySets: (n: numbe
          <span class="holdp-time"></span>
        </div>
        <div class="sets holdp-sets"></div>
-       <label class="holdp-auto${superset ? " off" : ""}">
-         <input type="checkbox"${superset ? " disabled" : ""} />
-         <span>Hands-free: run every set with ${restBetween}s rest between${
-           superset ? `<span class="holdp-auto-note">Not for supersets: you go to ${partner} between sets</span>` : ""
-         }</span>
-       </label>
        <div class="holdp-controls">
          <button class="holdp-go start sticker"></button>
+         <button class="holdp-auto" aria-pressed="false"${superset ? " disabled" : ""}
+           aria-label="${superset ? `Hands-free is off for supersets: you go to ${partner} between sets` : `Hands-free: run every set with ${restBetween}s rest between`}"
+           title="${superset ? `Not for supersets: you go to ${partner} between sets` : `Hands-free: run every set, ${restBetween}s rest between`}">${REPEAT_ICON}</button>
          <button class="holdp-reset chip">Reset</button>
        </div>
      </div>`,
@@ -1884,9 +1886,7 @@ function openHoldPanel(item: SessionItem, session: Session, applySets: (n: numbe
       const setsEl = sheet.querySelector<HTMLElement>(".holdp-sets")!;
       const goBtn = sheet.querySelector<HTMLButtonElement>(".holdp-go")!;
       const resetBtn = sheet.querySelector<HTMLButtonElement>(".holdp-reset")!;
-      const autoBox = sheet.querySelector<HTMLInputElement>(".holdp-auto input")!;
-      const autoRow = sheet.querySelector<HTMLElement>(".holdp-auto")!;
-      autoBox.checked = handsFree;
+      const autoBtn = sheet.querySelector<HTMLButtonElement>(".holdp-auto")!;
 
       const allDone = () => item.sets_done >= totalSets(item);
       const running = () => (mode === "countdown" ? steps.length > 0 && pausedLeft === null : swRunning);
@@ -1914,7 +1914,9 @@ function openHoldPanel(item: SessionItem, session: Session, applySets: (n: numbe
         sheet.querySelectorAll<HTMLButtonElement>(".holdp-mode").forEach((b) =>
           b.classList.toggle("on", b.dataset.mode === mode)
         );
-        autoRow.hidden = mode !== "countdown";
+        autoBtn.hidden = mode !== "countdown";
+        autoBtn.classList.toggle("on", handsFree);
+        autoBtn.setAttribute("aria-pressed", String(handsFree));
         if (mode === "stopwatch") {
           const elapsed = swBanked + (swRunning ? Date.now() - swStart : 0);
           display.dataset.kind = swRunning ? "hold" : "";
@@ -1927,7 +1929,9 @@ function openHoldPanel(item: SessionItem, session: Session, applySets: (n: numbe
         const step = steps[stepIndex];
         if (!step) {
           display.dataset.kind = "";
-          statusEl.textContent = allDone() ? "All done ✓" : `Set ${item.sets_done + 1} of ${totalSets(item)}`;
+          statusEl.textContent = allDone()
+            ? "All done ✓"
+            : `${handsFree ? "Hands-free · " : ""}Set ${item.sets_done + 1} of ${totalSets(item)}`;
           timeEl.textContent = clockText(holdSeconds(item) * 1000, false);
           goBtn.textContent = "Start";
           goBtn.disabled = allDone();
@@ -2055,9 +2059,10 @@ function openHoldPanel(item: SessionItem, session: Session, applySets: (n: numbe
         })
       );
 
-      autoBox.addEventListener("change", () => {
-        handsFree = autoBox.checked;
+      autoBtn.addEventListener("click", () => {
+        handsFree = !handsFree;
         writeStored(HANDS_FREE_KEY, handsFree ? "1" : "0");
+        paint();
       });
 
       // Closing stops the panel's clocks; a rest in progress carries on in the small pill

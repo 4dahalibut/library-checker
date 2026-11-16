@@ -1114,38 +1114,35 @@ button.past-note {
 }
 
 .holdp-auto {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-weight: 700;
-  font-size: 0.92rem;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  color: var(--muted);
+  background: var(--card);
+  border: 2.5px solid var(--ink);
+  border-radius: 50%;
+  box-shadow: 2px 2px 0 var(--shadow);
+}
+
+.holdp-auto.on {
+  color: var(--pop-ink);
+  background: var(--pop);
+}
+
+.holdp-auto:disabled {
+  opacity: 0.35;
+  box-shadow: none;
+  border-style: dashed;
 }
 
 .holdp-auto[hidden] {
   display: none;
 }
 
-.holdp-auto.off {
-  color: var(--muted);
-  opacity: 0.7;
-}
-
-.holdp-auto-note {
-  display: block;
-  font-size: 0.8rem;
-  font-weight: 600;
-  font-style: italic;
-}
-
-.holdp-auto input {
-  width: 22px;
-  height: 22px;
-  accent-color: var(--pop);
-}
-
 .holdp-controls {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
   gap: 10px;
   align-items: center;
 }
