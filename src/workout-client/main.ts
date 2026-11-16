@@ -612,7 +612,8 @@ async function renderHome(keepScroll = false): Promise<void> {
     .join("");
 
   const infoLine = (s: SessionSummary) =>
-    [s.duration_minutes !== null ? `<span class="rating-pair">${minutesText(s.duration_minutes)}</span>` : "", ratingsText(s)]
+    // Under a minute means it was logged after the fact, not timed
+    [s.duration_minutes ? `<span class="rating-pair">${minutesText(s.duration_minutes)}</span>` : "", ratingsText(s)]
       .filter(Boolean)
       .join(" · ");
 
