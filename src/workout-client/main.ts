@@ -1528,7 +1528,9 @@ interface PainReport {
 
 const painButton = document.createElement("button");
 painButton.className = "pain-button";
-painButton.textContent = "Report pain";
+painButton.setAttribute("aria-label", "Report pain");
+painButton.title = "Report pain";
+painButton.innerHTML = `<span class="pain-icon" aria-hidden="true"></span>`;
 painButton.addEventListener("click", openPainSheet);
 document.body.appendChild(painButton);
 
