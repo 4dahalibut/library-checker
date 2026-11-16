@@ -1770,6 +1770,44 @@ function leadsSuperset(item: SessionItem, items: SessionItem[]): boolean {
 
 type HoldStep = { kind: "prep" | "hold" | "rest"; seconds: number; label: string };
 
+/** Optional interval sounds while holding: every 5s, with its own sound at 10s, 30s and each minute */
+type Mark = "five" | "ten" | "thirty" | "minute";
+
+function tone(freq: number, at: number, length: number, volume = 0.22): void {
+  if (!audio) return;
+  const osc = audio.createOscillator();
+  const gain = audio.createGain();
+  osc.type = "sine";
+  osc.frequency.value = freq;
+  gain.gain.setValueAtTime(0.0001, at);
+  gain.gain.exponentialRampToValueAtTime(volume, at + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, at + length);
+  osc.connect(gain).connect(audio.destination);
+  osc.start(at);
+  osc.stop(at + length + 0.02);
+}
+
+function markSound(mark: Mark): void {
+  if (!audio) return;
+  const t = audio.currentTime;
+  if (mark === "five") tone(1320, t, 0.05, 0.15);
+  if (mark === "ten") [0, 0.12].forEach((o) => tone(1320, t + o, 0.05, 0.18));
+  if (mark === "thirty") [660, 990].forEach((f, i) => tone(f, t + i * 0.14, 0.12));
+  if (mark === "minute") [523, 659, 784].forEach((f, i) => tone(f, t + i * 0.16, 0.22));
+}
+
+function markFor(second: number): Mark {
+  return second % 60 === 0 ? "minute" : second % 30 === 0 ? "thirty" : second % 10 === 0 ? "ten" : "five";
+}
+
+const SOUND_KEY = "workout-hold-sound";
+const SOUND_ON_ICON = `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none"
+  stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M4 9v6h4l5 4V5L8 9z" fill="currentColor"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg>`;
+const SOUND_OFF_ICON = `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none"
+  stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M4 9v6h4l5 4V5L8 9z" fill="currentColor"/><path d="M17 9l5 5M22 9l-5 5"/></svg>`;
+
 /** Hands-free: fast-forward, i.e. run straight through every set */
 const FAST_FORWARD_ICON = `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"
   fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
@@ -1876,6 +1914,7 @@ function openHoldPanel(item: SessionItem, session: Session, applySets: (n: numbe
          <button class="holdp-auto" aria-pressed="false"${superset ? " disabled" : ""}
            aria-label="${superset ? `Hands-free is off for supersets: you go to ${partner} between sets` : `Hands-free: run every set with ${restBetween}s rest between`}"
            title="${superset ? `Not for supersets: you go to ${partner} between sets` : `Hands-free: run every set, ${restBetween}s rest between`}">${FAST_FORWARD_ICON}</button>
+         <button class="holdp-sound" aria-pressed="false"></button>
          <button class="holdp-reset chip">Reset</button>
        </div>
      </div>`,
@@ -1887,6 +1926,31 @@ function openHoldPanel(item: SessionItem, session: Session, applySets: (n: numbe
       const goBtn = sheet.querySelector<HTMLButtonElement>(".holdp-go")!;
       const resetBtn = sheet.querySelector<HTMLButtonElement>(".holdp-reset")!;
       const autoBtn = sheet.querySelector<HTMLButtonElement>(".holdp-auto")!;
+      const soundBtn = sheet.querySelector<HTMLButtonElement>(".holdp-sound")!;
+      let soundOn = readStored(SOUND_KEY) === "1";
+      // The last second a mark sound played for, so each mark plays once
+      let lastMark = -1;
+      const paintSound = () => {
+        soundBtn.classList.toggle("on", soundOn);
+        soundBtn.setAttribute("aria-pressed", String(soundOn));
+        soundBtn.setAttribute("aria-label", soundOn ? "Sounds every 5 seconds: on" : "Sounds every 5 seconds: off");
+        soundBtn.innerHTML = soundOn ? SOUND_ON_ICON : SOUND_OFF_ICON;
+      };
+      /** Plays the 5s / 10s / 30s / minute sound when a hold or the stopwatch passes one */
+      const maybeMark = (elapsedMs: number, endSeconds: number | null) => {
+        const second = Math.floor(elapsedMs / 1000);
+        if (!soundOn || second <= 0 || second === lastMark || second % 5 !== 0) return;
+        if (endSeconds !== null && second >= endSeconds) return; // the end-of-hold beep covers it
+        lastMark = second;
+        markSound(markFor(second));
+      };
+      soundBtn.addEventListener("click", () => {
+        unlockAudio();
+        soundOn = !soundOn;
+        writeStored(SOUND_KEY, soundOn ? "1" : "0");
+        paintSound();
+      });
+      paintSound();
 
       const allDone = () => item.sets_done >= totalSets(item);
       const running = () => (mode === "countdown" ? steps.length > 0 && pausedLeft === null : swRunning);
@@ -1918,6 +1982,7 @@ function openHoldPanel(item: SessionItem, session: Session, applySets: (n: numbe
         autoBtn.setAttribute("aria-pressed", String(handsFree));
         if (mode === "stopwatch") {
           const elapsed = swBanked + (swRunning ? Date.now() - swStart : 0);
+          if (swRunning) maybeMark(elapsed, null);
           display.dataset.kind = swRunning ? "hold" : "";
           statusEl.textContent = swRunning ? "Running" : elapsed ? "Paused" : "Ready";
           timeEl.textContent = clockText(elapsed, true);
@@ -1935,6 +2000,7 @@ function openHoldPanel(item: SessionItem, session: Session, applySets: (n: numbe
           return;
         }
         const left = pausedLeft ?? Math.max(0, stepEnd - Date.now());
+        if (step.kind === "hold" && pausedLeft === null) maybeMark(step.seconds * 1000 - left, step.seconds);
         display.dataset.kind = step.kind;
         statusEl.textContent = step.kind === "hold" ? `${step.label} · set ${item.sets_done + 1}` : step.label;
         timeEl.textContent = clockText(left, false);
@@ -1957,6 +2023,7 @@ function openHoldPanel(item: SessionItem, session: Session, applySets: (n: numbe
       const beginStep = (from = Date.now()) => {
         stepEnd = from + steps[stepIndex].seconds * 1000;
         pausedLeft = null;
+        lastMark = -1;
       };
 
       const runSet = (from = Date.now()) => {
@@ -2043,6 +2110,7 @@ function openHoldPanel(item: SessionItem, session: Session, applySets: (n: numbe
         pausedLeft = null;
         swBanked = 0;
         swRunning = false;
+        lastMark = -1;
         paint();
       });
 

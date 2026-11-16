@@ -545,8 +545,8 @@ export function setLadderRung(id: string, rung: number): boolean {
 /** Active (not archived) sequences in home-screen order, each slot at its ladder's current rung */
 export function listSequences(): ResolvedSequence[] {
   const seqs = workoutDb
-    .prepare("SELECT id, name FROM sequences WHERE archived = 0 ORDER BY position, id")
-    .all() as { id: string; name: string }[];
+    .prepare("SELECT id, name, rest_seconds AS restSeconds FROM sequences WHERE archived = 0 ORDER BY position, id")
+    .all() as { id: string; name: string; restSeconds: number }[];
   const slots = workoutDb
     .prepare(
       `SELECT si.sequence_id, si.label, l.id AS ladder_id, l.name AS ladder_name, l.extra_side,

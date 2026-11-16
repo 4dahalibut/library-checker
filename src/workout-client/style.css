@@ -1125,6 +1125,23 @@ button.past-note {
   box-shadow: 2px 2px 0 var(--shadow);
 }
 
+.holdp-sound {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  color: var(--muted);
+  background: var(--card);
+  border: 2.5px solid var(--ink);
+  border-radius: 50%;
+  box-shadow: 2px 2px 0 var(--shadow);
+}
+
+.holdp-sound.on {
+  color: var(--pop-ink);
+  background: var(--pop);
+}
+
 .holdp-auto.on {
   color: var(--pop-ink);
   background: var(--pop);
@@ -1142,7 +1159,7 @@ button.past-note {
 
 .holdp-controls {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: 1fr auto auto auto;
   gap: 10px;
   align-items: center;
 }

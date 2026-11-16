@@ -76,6 +76,8 @@ export interface ResolvedSequenceItem extends Rung {
 export interface ResolvedSequence {
   id: string;
   name: string;
+  /** Seconds of rest after a set (0 = no rest timer) */
+  restSeconds: number;
   items: ResolvedSequenceItem[];
 }
 
