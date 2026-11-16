@@ -69,6 +69,7 @@ interface SessionSummary {
   sequence_id: string;
   sequence_name: string;
   date: string;
+  created_at: string;
   finished_at: string | null;
   /** Start to Finish, in whole minutes */
   duration_minutes: number | null;
@@ -453,7 +454,12 @@ function pickWords(count = 12): string[] {
 
 // --- Sheet (a sticker that slides up for picking things) ---
 
-function openSheet(title: string, body: string, onOpen: (sheet: HTMLElement, close: () => void) => void): void {
+function openSheet(
+  title: string,
+  body: string,
+  onOpen: (sheet: HTMLElement, close: () => void) => void,
+  onClose?: () => void
+): void {
   const backdrop = document.createElement("div");
   backdrop.className = "sheet-backdrop";
   backdrop.innerHTML = `
@@ -464,7 +470,10 @@ function openSheet(title: string, body: string, onOpen: (sheet: HTMLElement, clo
       </div>
       ${body}
     </div>`;
-  const close = () => backdrop.remove();
+  const close = () => {
+    backdrop.remove();
+    onClose?.();
+  };
   backdrop.addEventListener("click", (e) => {
     if (e.target === backdrop) close();
   });
@@ -548,6 +557,9 @@ async function renderHome(keepScroll = false): Promise<void> {
   let sequences: Sequence[];
   let sessions: SessionSummary[];
   let weeks: Week[];
+  // Pain reports go in the Log too; the Log still loads if they don't
+  const painLoad = api<{ reports: PainReport[] }>("/pain?limit=100").catch(() => ({ reports: [] as PainReport[] }));
+  let pains: PainReport[];
   try {
     let weekResults: { week: Week }[];
     [{ sequences }, { sessions }, ...weekResults] = await Promise.all([
@@ -556,6 +568,7 @@ async function renderHome(keepScroll = false): Promise<void> {
       ...Array.from({ length: laterWeeks + 1 }, (_, offset) => api<{ week: Week }>(`/week?today=${today}&offset=${offset}`)),
     ] as [Promise<{ sequences: Sequence[] }>, Promise<{ sessions: SessionSummary[] }>, ...Promise<{ week: Week }>[]]);
     weeks = weekResults.map((r) => r.week);
+    ({ reports: pains } = await painLoad);
   } catch {
     app.innerHTML = `<p class="loading">Couldn't load workouts. Check your connection and reopen.</p>`;
     return;
@@ -617,9 +630,26 @@ async function renderHome(keepScroll = false): Promise<void> {
       .filter(Boolean)
       .join(" · ");
 
-  const history = sessions.length
-    ? sessions
-        .map((s) => {
+  // Only reports as far back as the Log's oldest session, when the Log is cut off
+  const oldest = sessions.length >= 30 ? sessions[sessions.length - 1].date : "";
+  const painRow = (r: PainReport) => `
+        <div class="log-row pain-row">
+          <button class="history-row pain-entry" aria-label="Pain: ${escapeHtml(r.area)} on ${formatDate(r.date)}. Open report pain">
+            <span class="history-date">${formatDate(r.date)}</span>
+            <span class="pain-entry-what"><span class="pain-entry-icon" aria-hidden="true"></span>${escapeHtml(r.area)}${
+              r.intensity ? ` <span class="pain-stars">${"★".repeat(r.intensity)}</span>` : ""
+            }${r.note ? `<span class="pain-entry-note">${escapeHtml(r.note)}</span>` : ""}</span>
+          </button>
+        </div>`;
+  const entries = [
+    ...sessions.map((s) => ({ date: s.date, at: s.created_at, session: s, pain: null as PainReport | null })),
+    ...pains.filter((r) => r.date >= oldest).map((r) => ({ date: r.date, at: r.reportedAt, session: null, pain: r })),
+  ].sort((a, b) => (a.date === b.date ? b.at.localeCompare(a.at) : b.date.localeCompare(a.date)));
+
+  const history = entries.length
+    ? entries
+        .map(({ session: s, pain }) => {
+          if (!s) return painRow(pain!);
           const skipped = s.skipped ? `, ${s.skipped} skipped` : "";
           return `
         <div class="log-row">
@@ -655,6 +685,8 @@ async function renderHome(keepScroll = false): Promise<void> {
     </section>
   `;
   if (keepScroll) window.scrollTo(0, scrollY);
+
+  app.querySelectorAll<HTMLButtonElement>(".pain-entry").forEach((btn) => btn.addEventListener("click", openPainSheet));
 
   // Two taps to delete, like inside a session
   app.querySelectorAll<HTMLButtonElement>(".log-trash").forEach((btn) => {
@@ -1588,6 +1620,7 @@ interface PainReport {
   date: string;
   intensity: number | null;
   note: string;
+  reportedAt: string;
 }
 
 const painButton = document.createElement("button");
@@ -1624,6 +1657,8 @@ async function openPainSheet(): Promise<void> {
     alert("Couldn't load. Check your connection.");
     return;
   }
+  // The Log shows pain too, so it catches up once the sheet closes
+  let changed = false;
   openSheet(
     "Report pain",
     `<p class="sheet-label">Where?</p>
@@ -1670,6 +1705,7 @@ async function openPainSheet(): Promise<void> {
             btn.disabled = true;
             try {
               ({ reports } = await api<{ reports: PainReport[] }>(`/pain/${btn.dataset.report}`, { method: "DELETE" }));
+              changed = true;
               renderRecent();
             } catch {
               btn.disabled = false;
@@ -1724,6 +1760,7 @@ async function openPainSheet(): Promise<void> {
             method: "POST",
             body: JSON.stringify({ areaId, date: localToday(), intensity, note: note.value.trim() }),
           }));
+          changed = true;
           logged.hidden = false;
           logged.textContent = `Logged ${areas.find((a) => a.id === areaId)?.name ?? ""} for today.`;
           areaId = null;
@@ -1740,6 +1777,9 @@ async function openPainSheet(): Promise<void> {
 
       renderAreas();
       renderRecent();
+    },
+    () => {
+      if (changed && !location.hash.replace("#", "")) renderHome(true);
     }
   );
 }

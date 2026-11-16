@@ -15,6 +15,8 @@
   --danger: #d23c3c;
   /* The report-pain button keeps a deep red in both themes so its white symbol reads */
   --alarm: #d23c3c;
+  --pain-bg: #fde9e6;
+  --pain-ink: #b4322f;
   --display: "Fraunces", "Iowan Old Style", Georgia, serif;
   --body: "Nunito", ui-rounded, -apple-system, "Segoe UI", sans-serif;
   color-scheme: light;
@@ -35,6 +37,8 @@
     --sun: #ffd84a;
     --field: #221c43;
     --danger: #ff8a8a;
+    --pain-bg: #3a2246;
+    --pain-ink: #ff9a94;
     color-scheme: dark;
   }
 }
@@ -1752,4 +1756,47 @@ input::placeholder {
   white-space: nowrap;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* Pain reports in the Log: a slim, tinted row between workouts */
+.log-row.pain-row {
+  background: var(--pain-bg);
+}
+
+.history-row.pain-entry {
+  padding-top: 7px;
+  padding-bottom: 7px;
+  padding-right: 16px;
+  text-align: left;
+  grid-template-columns: 5.6rem 1fr;
+  font-size: 0.88rem;
+}
+
+.pain-entry .history-date {
+  font-size: 0.8rem;
+}
+
+.pain-entry-what {
+  min-width: 0;
+  font-weight: 800;
+  color: var(--pain-ink);
+}
+
+.pain-entry-icon {
+  display: inline-block;
+  width: 0.95em;
+  height: 0.95em;
+  margin-right: 5px;
+  vertical-align: -0.12em;
+  background: var(--pain-ink);
+  -webkit-mask: url("./pain-icon.png") center / contain no-repeat;
+  mask: url("./pain-icon.png") center / contain no-repeat;
+}
+
+.pain-entry-note {
+  display: block;
+  font-weight: 700;
+  font-style: italic;
+  font-size: 0.8rem;
+  color: var(--muted);
 }

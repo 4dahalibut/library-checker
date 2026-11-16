@@ -732,6 +732,7 @@ export interface SessionSummary {
   sequence_id: string;
   sequence_name: string;
   date: string;
+  created_at: string;
   finished_at: string | null;
   word: string | null;
   effort: number | null;
@@ -882,7 +883,7 @@ export function typicalMinutes(): Map<string, number> {
 export function listSessions(limit = 30): SessionSummary[] {
   return workoutDb
     .prepare(
-      `SELECT s.id, s.sequence_id, s.sequence_name, s.date, s.finished_at, s.word, s.effort,
+      `SELECT s.id, s.sequence_id, s.sequence_name, s.date, s.created_at, s.finished_at, s.word, s.effort,
               s.conscientiousness, ${DURATION_SQL} AS duration_minutes, COUNT(i.id) AS total,
               COALESCE(SUM(CASE WHEN ${DONE_SQL} THEN 1 ELSE 0 END), 0) AS done,
               COALESCE(SUM(i.skipped), 0) AS skipped
@@ -1156,6 +1157,7 @@ export interface PainReport {
   /** 1 to 5, or null if not given */
   intensity: number | null;
   note: string;
+  reportedAt: string;
 }
 
 export function listPainAreas(): PainArea[] {
@@ -1179,7 +1181,7 @@ export function addPainArea(name: string): PainArea {
 export function listPainReports(limit = 20): PainReport[] {
   return workoutDb
     .prepare(
-      `SELECT r.id, r.area_id AS areaId, a.name AS area, r.date, r.intensity, r.note
+      `SELECT r.id, r.area_id AS areaId, a.name AS area, r.date, r.intensity, r.note, r.reported_at AS reportedAt
        FROM pain_reports r JOIN pain_areas a ON a.id = r.area_id
        ORDER BY r.date DESC, r.id DESC LIMIT ?`
     )

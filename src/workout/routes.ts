@@ -477,8 +477,9 @@ workoutRouter.patch("/api/sessions/:id", (req, res) => {
 // --- Pain reports ---
 // Logged from the app, so open like the rest of the logging
 
-workoutRouter.get("/api/pain", (_req, res) => {
-  res.json({ areas: listPainAreas(), reports: listPainReports() });
+workoutRouter.get("/api/pain", (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 200);
+  res.json({ areas: listPainAreas(), reports: listPainReports(limit) });
 });
 
 workoutRouter.post("/api/pain/areas", (req, res) => {
