@@ -1125,6 +1125,18 @@ button.past-note {
   display: none;
 }
 
+.holdp-auto.off {
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.holdp-auto-note {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-style: italic;
+}
+
 .holdp-auto input {
   width: 22px;
   height: 22px;

@@ -1832,8 +1832,11 @@ function openHoldPanel(item: SessionItem, session: Session, applySets: (n: numbe
   unlockAudio();
   // Superset exercises (A1/A2) alternate with their partner, so no hands-free chaining
   const pair = /^[A-Z][12]$/;
-  const superset =
-    pair.test(item.label) && session.items.some((i) => i !== item && pair.test(i.label) && i.label[0] === item.label[0]);
+  const partnerItem = pair.test(item.label)
+    ? session.items.find((i) => i !== item && pair.test(i.label) && i.label[0] === item.label[0])
+    : undefined;
+  const superset = !!partnerItem;
+  const partner = partnerItem?.label ?? "";
   const restBetween = session.rest_seconds > 0 ? session.rest_seconds : 10;
   let mode: "countdown" | "stopwatch" = readStored(modeKey(item)) === "stopwatch" ? "stopwatch" : "countdown";
   // Hidden (and off) for superset exercises
@@ -1863,8 +1866,11 @@ function openHoldPanel(item: SessionItem, session: Session, applySets: (n: numbe
          <span class="holdp-time"></span>
        </div>
        <div class="sets holdp-sets"></div>
-       <label class="holdp-auto"${superset ? " hidden" : ""}>
-         <input type="checkbox" /> Hands-free: run every set with ${restBetween}s rest between
+       <label class="holdp-auto${superset ? " off" : ""}">
+         <input type="checkbox"${superset ? " disabled" : ""} />
+         <span>Hands-free: run every set with ${restBetween}s rest between${
+           superset ? `<span class="holdp-auto-note">Not for supersets: you go to ${partner} between sets</span>` : ""
+         }</span>
        </label>
        <div class="holdp-controls">
          <button class="holdp-go start sticker"></button>
@@ -1908,7 +1914,7 @@ function openHoldPanel(item: SessionItem, session: Session, applySets: (n: numbe
         sheet.querySelectorAll<HTMLButtonElement>(".holdp-mode").forEach((b) =>
           b.classList.toggle("on", b.dataset.mode === mode)
         );
-        autoRow.hidden = superset || mode !== "countdown";
+        autoRow.hidden = mode !== "countdown";
         if (mode === "stopwatch") {
           const elapsed = swBanked + (swRunning ? Date.now() - swStart : 0);
           display.dataset.kind = swRunning ? "hold" : "";
