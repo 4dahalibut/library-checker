@@ -1903,11 +1903,10 @@ function openHoldPanel(item: SessionItem, session: Session, applySets: (n: numbe
         );
       };
 
-      const clockText = (ms: number, tenths: boolean) => {
-        const total = tenths ? Math.floor(ms / 100) : Math.ceil(ms / 1000);
-        const secs = tenths ? Math.floor(total / 10) : total;
-        const base = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
-        return tenths ? `${base}.${total % 10}` : base;
+      // Countdowns round up (0:01 until it's over); the stopwatch counts whole seconds up
+      const clockText = (ms: number, countUp: boolean) => {
+        const secs = countUp ? Math.floor(ms / 1000) : Math.ceil(ms / 1000);
+        return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
       };
 
       const paint = () => {
@@ -1949,7 +1948,7 @@ function openHoldPanel(item: SessionItem, session: Session, applySets: (n: numbe
       };
       const startTicking = () => {
         stopTicking();
-        tick = window.setInterval(mode === "stopwatch" ? paint : advance, mode === "stopwatch" ? 100 : 200);
+        tick = window.setInterval(mode === "stopwatch" ? paint : advance, 200);
         void keepAwake(true);
       };
 
