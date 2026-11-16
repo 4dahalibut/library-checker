@@ -57,7 +57,7 @@ body {
   max-width: 600px;
   margin: 0 auto;
   padding: env(safe-area-inset-top, 0px) max(16px, env(safe-area-inset-right, 0px))
-    calc(40px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+    calc(96px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
   -webkit-text-size-adjust: 100%;
 }
 
@@ -857,6 +857,192 @@ button.past-note {
   font-style: italic;
   font-weight: 700;
   color: var(--done-ink);
+}
+
+/* --- Hit the top / level up --- */
+
+.hit-top {
+  justify-self: start;
+  font-size: 0.85rem;
+  font-weight: 800;
+  padding: 6px 14px;
+  color: var(--muted);
+  background: var(--card);
+  border: 2px dashed var(--muted);
+  border-radius: 999px;
+}
+
+.hit-top.on {
+  color: var(--pop-ink);
+  background: var(--pop);
+  border: 2px solid var(--ink);
+  box-shadow: 2px 2px 0 var(--shadow);
+}
+
+.level-up {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 12px 0 6px;
+  text-align: center;
+}
+
+.level-up-stamp {
+  padding: 4px 16px;
+  border: 3px solid var(--pop);
+  border-radius: 10px;
+  color: var(--pop);
+  font-family: var(--display);
+  font-variation-settings: "SOFT" 100, "WONK" 1;
+  font-size: 1.8rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  transform: rotate(-6deg);
+  animation: stamp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.level-up-row {
+  display: grid;
+  gap: 2px;
+}
+
+.level-up-row strong {
+  font-family: var(--display);
+  font-variation-settings: "SOFT" 100, "WONK" 1;
+  font-size: 1.2rem;
+}
+
+.level-up-row span {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+/* --- Report pain --- */
+
+.pain-button {
+  position: fixed;
+  right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 25;
+  padding: 10px 16px;
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: var(--card);
+  background: var(--danger);
+  border: 2.5px solid var(--ink);
+  border-radius: 999px;
+  box-shadow: 3px 3px 0 var(--shadow);
+}
+
+.pain-button[hidden] {
+  display: none;
+}
+
+.pain-button:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 var(--shadow);
+}
+
+.pain-add {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.pain-add input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  font-size: 1rem;
+  font-weight: 600;
+  background: var(--card);
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+}
+
+.pain-area.on {
+  background: var(--danger);
+  color: var(--card);
+}
+
+.pain-intensity {
+  margin-top: 14px;
+}
+
+.pain-note-input {
+  margin-top: 12px;
+}
+
+.start.pain-log {
+  position: static;
+  margin-top: 14px;
+  padding: 12px;
+  font-size: 1.2rem;
+}
+
+.pain-stars {
+  color: var(--danger);
+  letter-spacing: 1px;
+}
+
+.pain-note {
+  display: block;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+/* --- Rest timer --- */
+
+.rest-timer {
+  position: fixed;
+  left: max(16px, env(safe-area-inset-left, 0px));
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 25;
+  min-width: 112px;
+  padding: 10px 16px;
+  font-size: 0.95rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  border: 2.5px solid var(--ink);
+  border-radius: 999px;
+  box-shadow: 3px 3px 0 var(--shadow);
+  /* The sun-yellow fill shrinks as the rest runs out */
+  background: linear-gradient(90deg, var(--sun) calc(var(--left, 1) * 100%), var(--card) 0);
+}
+
+.rest-timer[hidden] {
+  display: none;
+}
+
+.rest-timer.go {
+  background: var(--done);
+  color: var(--done-ink);
+  animation: pop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.pain-logged {
+  margin-top: 12px;
+  font-weight: 800;
+  color: var(--done-ink);
+}
+
+.pain-report {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 2px dashed var(--dots);
+  font-size: 0.92rem;
+}
+
+.pain-undo {
+  font-size: 1.3rem;
+  line-height: 1;
+  padding: 0 6px;
+  color: var(--muted);
 }
 
 /* --- Finish --- */

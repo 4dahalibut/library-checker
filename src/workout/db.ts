@@ -286,6 +286,47 @@ const MIGRATIONS: (() => void)[] = [
         CHECK (conscientiousness IS NULL OR conscientiousness BETWEEN 1 AND 5);
     `);
   },
+
+  // 6: pain reports by body part, "hit the top of the range" for automatic promotion,
+  //    and rest between sets per sequence
+  () => {
+    workoutDb.exec(`
+      CREATE TABLE pain_areas (
+        id TEXT PRIMARY KEY ${SLUG_CHECK("id")},
+        name TEXT NOT NULL UNIQUE CHECK (length(trim(name)) BETWEEN 1 AND 40),
+        position INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE pain_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        area_id TEXT NOT NULL REFERENCES pain_areas(id) ON DELETE RESTRICT,
+        date TEXT NOT NULL ${DATE_CHECK("date")},
+        intensity INTEGER CHECK (intensity IS NULL OR intensity BETWEEN 1 AND 5),
+        note TEXT NOT NULL DEFAULT '',
+        reported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX pain_reports_date ON pain_reports(date);
+
+      INSERT INTO pain_areas (id, name, position) VALUES
+        ('left-ankle', 'Left ankle', 0),
+        ('right-knee', 'Right knee', 1),
+        ('left-hip', 'Left hip', 2),
+        ('low-back', 'Low back', 3),
+        ('right-finger', 'Right finger', 4),
+        ('left-shoulder', 'Left shoulder', 5),
+        ('right-plantar-fascia', 'Right plantar fascia', 6);
+
+      -- Ticked when the top of a ranged target was reached with good position
+      ALTER TABLE session_items ADD COLUMN hit_top INTEGER NOT NULL DEFAULT 0 CHECK (hit_top IN (0, 1));
+
+      -- Seconds of rest after a set (0 = no rest timer)
+      ALTER TABLE sequences ADD COLUMN rest_seconds INTEGER NOT NULL DEFAULT 0 CHECK (rest_seconds BETWEEN 0 AND 600);
+      UPDATE sequences SET rest_seconds = 75 WHERE id = 'main';
+      UPDATE sequences SET rest_seconds = 60 WHERE id = 'foundation';
+      UPDATE sequences SET rest_seconds = 30 WHERE id = 'mobility';
+    `);
+  },
 ];
 
 function migrate(): void {
@@ -724,6 +765,7 @@ export interface SessionItem {
   weighted: number;
   timed: number;
   to_failure: number;
+  hit_top: number;
   /** Reps reached per set (to-failure exercises), index 0 = set 1 */
   set_reps: (number | null)[];
   /** Reps per set from the last time this exercise was logged elsewhere, as hints */
@@ -826,7 +868,7 @@ export function getSession(id: number): Session | null {
     .prepare(
       `SELECT id, position, name, cue, label, target_sets, target_reps, target_reps_max, target_seconds,
               target_seconds_max, target_weight, unit, per_side, extra_side, sets_done, skipped, weight,
-              seconds, notes, exercise_id, ladder_id, rung, weighted, timed, to_failure
+              seconds, notes, exercise_id, ladder_id, rung, weighted, timed, to_failure, hit_top
        FROM session_items WHERE session_id = ? ORDER BY position`
     )
     .all(id) as Omit<SessionItem, "set_reps" | "last_set_reps" | "last_note" | "description" | "cues">[];
@@ -935,6 +977,7 @@ export const createSession = workoutDb.transaction((sequence: ResolvedSequence, 
 });
 
 export interface ItemUpdate {
+  hit_top?: number;
   sets_done?: number;
   skipped?: number;
   weight?: number | null;
@@ -997,6 +1040,140 @@ export function setSessionRating(id: number, field: "effort" | "conscientiousnes
 /** The word picked at Finish (null clears it) */
 export function setSessionWord(id: number, word: string | null): boolean {
   return workoutDb.prepare("UPDATE sessions SET word = ? WHERE id = ?").run(word, id).changes > 0;
+}
+
+export interface Promotion {
+  ladderId: string;
+  ladderName: string;
+  fromRung: number;
+  toRung: number;
+  /** The new rung's exercise */
+  name: string;
+}
+
+/**
+ * Moves a ladder up a rung when this session and the previous time that rung was done
+ * both hit the top of the range. Run when a session is finished.
+ */
+export const promoteLadders = workoutDb.transaction((sessionId: number): Promotion[] => {
+  const session = workoutDb.prepare("SELECT id, date FROM sessions WHERE id = ?").get(sessionId) as
+    | { id: number; date: string }
+    | undefined;
+  if (!session) return [];
+  const items = workoutDb
+    .prepare(
+      `SELECT i.ladder_id, i.rung, l.name AS ladder_name, l.current_rung,
+              (SELECT COUNT(*) FROM ladder_rungs r WHERE r.ladder_id = i.ladder_id) AS rung_count
+       FROM session_items i JOIN ladders l ON l.id = i.ladder_id
+       WHERE i.session_id = ? AND i.hit_top = 1 AND i.skipped = 0`
+    )
+    .all(sessionId) as {
+    ladder_id: string;
+    rung: number;
+    ladder_name: string;
+    current_rung: number;
+    rung_count: number;
+  }[];
+  const promotions: Promotion[] = [];
+  for (const item of items) {
+    if (item.current_rung !== item.rung || item.rung >= item.rung_count) continue;
+    const previous = workoutDb
+      .prepare(
+        `SELECT i.hit_top FROM session_items i JOIN sessions s ON s.id = i.session_id
+         WHERE i.ladder_id = @ladder AND i.rung = @rung AND i.skipped = 0
+           AND (s.date < @date OR (s.date = @date AND s.id < @id))
+         ORDER BY s.date DESC, s.id DESC LIMIT 1`
+      )
+      .get({ ladder: item.ladder_id, rung: item.rung, date: session.date, id: session.id }) as
+      | { hit_top: number }
+      | undefined;
+    if (!previous?.hit_top) continue;
+    setLadderRung(item.ladder_id, item.rung + 1);
+    const next = workoutDb
+      .prepare(
+        `SELECT e.name FROM ladder_rungs r JOIN exercises e ON e.id = r.exercise_id
+         WHERE r.ladder_id = ? AND r.rung = ?`
+      )
+      .get(item.ladder_id, item.rung + 1) as { name: string };
+    promotions.push({
+      ladderId: item.ladder_id,
+      ladderName: item.ladder_name,
+      fromRung: item.rung,
+      toRung: item.rung + 1,
+      name: next.name,
+    });
+  }
+  return promotions;
+});
+
+// --- Pain reports ---
+
+export interface PainArea {
+  id: string;
+  name: string;
+}
+
+export interface PainReport {
+  id: number;
+  areaId: string;
+  area: string;
+  date: string;
+  /** 1 to 5, or null if not given */
+  intensity: number | null;
+  note: string;
+}
+
+export function listPainAreas(): PainArea[] {
+  return workoutDb.prepare("SELECT id, name FROM pain_areas ORDER BY position, name").all() as PainArea[];
+}
+
+/** Adds a body part, or returns the existing one with that name */
+export function addPainArea(name: string): PainArea {
+  const existing = workoutDb.prepare("SELECT id, name FROM pain_areas WHERE lower(name) = lower(?)").get(name) as
+    | PainArea
+    | undefined;
+  if (existing) return existing;
+  const base = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 50) || "area";
+  let id = base;
+  for (let n = 2; workoutDb.prepare("SELECT 1 FROM pain_areas WHERE id = ?").get(id); n++) id = `${base}-${n}`;
+  const { p } = workoutDb.prepare("SELECT COALESCE(MAX(position), -1) + 1 AS p FROM pain_areas").get() as { p: number };
+  workoutDb.prepare("INSERT INTO pain_areas (id, name, position) VALUES (?, ?, ?)").run(id, name, p);
+  return { id, name };
+}
+
+export function listPainReports(limit = 20): PainReport[] {
+  return workoutDb
+    .prepare(
+      `SELECT r.id, r.area_id AS areaId, a.name AS area, r.date, r.intensity, r.note
+       FROM pain_reports r JOIN pain_areas a ON a.id = r.area_id
+       ORDER BY r.date DESC, r.id DESC LIMIT ?`
+    )
+    .all(limit) as PainReport[];
+}
+
+export function addPainReport(areaId: string, date: string, intensity: number | null, note: string): number | null {
+  if (!workoutDb.prepare("SELECT 1 FROM pain_areas WHERE id = ?").get(areaId)) return null;
+  return Number(
+    workoutDb
+      .prepare("INSERT INTO pain_reports (area_id, date, intensity, note) VALUES (?, ?, ?, ?)")
+      .run(areaId, date, intensity, note).lastInsertRowid
+  );
+}
+
+/** Seconds of rest after a set in this sequence (0 = none) */
+export function getRestSeconds(sequenceId: string): number {
+  const row = workoutDb.prepare("SELECT rest_seconds FROM sequences WHERE id = ?").get(sequenceId) as
+    | { rest_seconds: number }
+    | undefined;
+  return row?.rest_seconds ?? 0;
+}
+
+export function setRestSeconds(sequenceId: string, seconds: number): void {
+  workoutDb.prepare("UPDATE sequences SET rest_seconds = ? WHERE id = ?").run(seconds, sequenceId);
+}
+
+export function deletePainReport(id: number): boolean {
+  return workoutDb.prepare("DELETE FROM pain_reports WHERE id = ?").run(id).changes > 0;
 }
 
 export function setSessionFinished(id: number, finished: boolean): boolean {

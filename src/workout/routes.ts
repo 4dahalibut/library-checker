@@ -14,6 +14,14 @@ import {
   archiveSequence,
   setSessionSetReps,
   setSessionFinished,
+  promoteLadders,
+  listPainAreas,
+  addPainArea,
+  listPainReports,
+  addPainReport,
+  deletePainReport,
+  getRestSeconds,
+  setRestSeconds,
   setSessionWord,
   setSessionRating,
   pastNotes,
@@ -251,7 +259,11 @@ function parseItem(raw: unknown, index: number): SequenceItem | string {
 // Replaces the sequence's name and whole slot list (and restores it if archived)
 workoutRouter.put("/api/sequences/:id", requireAdmin, (req, res) => {
   const { id } = req.params;
-  const { name, items, position } = req.body ?? {};
+  const { name, items, position, restSeconds } = req.body ?? {};
+  if (restSeconds !== undefined && !(Number.isInteger(restSeconds) && restSeconds >= 0 && restSeconds <= 600)) {
+    res.status(400).json({ error: "restSeconds must be 0 to 600" });
+    return;
+  }
   if (!SLUG_RE.test(id)) {
     res.status(400).json({ error: "id must be lowercase letters, digits and dashes" });
     return;
@@ -284,7 +296,8 @@ workoutRouter.put("/api/sequences/:id", requireAdmin, (req, res) => {
   }
   const sequence: Sequence = { id, name: name.trim(), items: parsed };
   saveSequence(sequence, position);
-  res.json({ sequence: getSequence(id) });
+  if (restSeconds !== undefined) setRestSeconds(id, restSeconds);
+  res.json({ sequence: getSequence(id), restSeconds: getRestSeconds(id) });
 });
 
 // Archives rather than deletes, so past sessions keep a real sequence behind them
@@ -324,7 +337,7 @@ workoutRouter.get("/api/sessions/:id", (req, res) => {
     res.status(404).json({ error: "Session not found" });
     return;
   }
-  res.json({ session });
+  res.json({ session: { ...session, rest_seconds: getRestSeconds(session.sequence_id) } });
 });
 
 // Every note written before this session: on one of its exercises, or for its sequence
@@ -348,8 +361,15 @@ workoutRouter.get("/api/sessions/:id/past-notes", (req, res) => {
 });
 
 workoutRouter.patch("/api/sessions/:id/items/:itemId", (req, res) => {
-  const { sets_done, skipped, weight, seconds, notes } = req.body;
+  const { sets_done, skipped, weight, seconds, notes, hit_top } = req.body;
   const update: ItemUpdate = {};
+  if (hit_top !== undefined) {
+    if (typeof hit_top !== "boolean") {
+      res.status(400).json({ error: "hit_top must be true or false" });
+      return;
+    }
+    update.hit_top = hit_top ? 1 : 0;
+  }
   if (sets_done !== undefined) {
     if (!Number.isInteger(sets_done) || sets_done < 0) {
       res.status(400).json({ error: "sets_done must be a whole number" });
@@ -450,7 +470,51 @@ workoutRouter.patch("/api/sessions/:id", (req, res) => {
     res.status(404).json({ error: "Session not found" });
     return;
   }
-  res.json({ success: true });
+  // Finishing can move ladders up a rung
+  res.json({ success: true, promotions: finished === true ? promoteLadders(id) : [] });
+});
+
+// --- Pain reports ---
+// Logged from the app, so open like the rest of the logging
+
+workoutRouter.get("/api/pain", (_req, res) => {
+  res.json({ areas: listPainAreas(), reports: listPainReports() });
+});
+
+workoutRouter.post("/api/pain/areas", (req, res) => {
+  const { name } = req.body ?? {};
+  if (typeof name !== "string" || name.trim().length === 0 || name.trim().length > 40) {
+    res.status(400).json({ error: "name must be 1 to 40 characters" });
+    return;
+  }
+  res.json({ area: addPainArea(name.trim()) });
+});
+
+workoutRouter.post("/api/pain", (req, res) => {
+  const { areaId, date, intensity, note } = req.body ?? {};
+  if (intensity !== undefined && intensity !== null && !(Number.isInteger(intensity) && intensity >= 1 && intensity <= 5)) {
+    res.status(400).json({ error: "intensity must be 1 to 5 or null" });
+    return;
+  }
+  if (typeof date !== "string" || !DATE_RE.test(date)) {
+    res.status(400).json({ error: "date must be YYYY-MM-DD" });
+    return;
+  }
+  if (note !== undefined && (typeof note !== "string" || note.length > 500)) {
+    res.status(400).json({ error: "note must be short text" });
+    return;
+  }
+  const id = typeof areaId === "string" ? addPainReport(areaId, date, intensity ?? null, (note ?? "").trim()) : null;
+  if (id === null) {
+    res.status(400).json({ error: "Unknown body part" });
+    return;
+  }
+  res.json({ id, reports: listPainReports() });
+});
+
+workoutRouter.delete("/api/pain/:id", (req, res) => {
+  deletePainReport(Number(req.params.id));
+  res.json({ reports: listPainReports() });
 });
 
 // --- Week ---

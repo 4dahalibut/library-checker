@@ -100,6 +100,7 @@ interface SessionItem {
   weighted: number;
   timed: number;
   to_failure: number;
+  hit_top: number;
   set_reps: (number | null)[];
   last_set_reps: (number | null)[];
   last_note: LatestNote | null;
@@ -127,6 +128,8 @@ interface Session {
   effort: number | null;
   conscientiousness: number | null;
   last_session_note: LatestNote | null;
+  /** Seconds of rest after a set; 0 means no rest timer */
+  rest_seconds: number;
   items: SessionItem[];
 }
 
@@ -1105,6 +1108,22 @@ function renderGuide(item: SessionItem): string {
     </details>`;
 }
 
+/**
+ * Ranged exercises with a rung above them can be marked "hit the top". Two sessions in
+ * a row moves the ladder up a rung when the workout is finished.
+ */
+function canHitTop(item: SessionItem, ladders: Map<string, Ladder>): boolean {
+  const ladder = item.ladder_id ? ladders.get(item.ladder_id) : undefined;
+  const ranged = item.target_reps_max !== null || item.target_seconds_max !== null;
+  return !!ladder && ranged && item.rung !== null && item.rung < ladder.rungs.length;
+}
+
+function renderHitTop(item: SessionItem, ladders: Map<string, Ladder>): string {
+  if (!canHitTop(item, ladders)) return "";
+  return `<button class="hit-top${item.hit_top ? " on" : ""}" aria-pressed="${!!item.hit_top}">
+      ${item.hit_top ? "Hit the top ✓" : "Hit the top?"}</button>`;
+}
+
 /** Which rung this workout uses; rungs are picked on the preview before starting */
 function ladderChip(item: SessionItem, ladders: Map<string, Ladder>): string {
   const ladder = item.ladder_id ? ladders.get(item.ladder_id) : undefined;
@@ -1131,6 +1150,7 @@ function renderItem(item: SessionItem, ladders: Map<string, Ladder>): string {
         <button class="skip">${item.skipped ? "Unskip" : "Skip"}</button>
       </div>
       ${renderGuide(item)}
+      ${renderHitTop(item, ladders)}
       <div class="sets">${renderSetButtons(item)}</div>
       <div class="inputs">
         ${
@@ -1169,6 +1189,28 @@ function updateProgress(session: Session): void {
   if (bar) bar.style.width = `${total ? ((done + skipped) / total) * 100 : 0}%`;
   if (label) label.textContent = `${done}/${total} done${skipped ? ` · ${skipped} skipped` : ""}`;
   if (banner) banner.hidden = !isWrapped(session) || !!session.finished_at;
+}
+
+interface Promotion {
+  ladderName: string;
+  fromRung: number;
+  toRung: number;
+  name: string;
+}
+
+/** Replaces the finish sheet's contents with the ladders that just moved up */
+function showLevelUps(sheet: HTMLElement, promotions: Promotion[]): void {
+  sheet.innerHTML = `
+    <div class="level-up">
+      <span class="level-up-stamp">Level up!</span>
+      ${promotions
+        .map(
+          (p) => `<p class="level-up-row"><strong>${escapeHtml(p.name)}</strong>
+            <span>${escapeHtml(p.ladderName)} ladder · rung ${p.toRung}</span></p>`
+        )
+        .join("")}
+    </div>`;
+  confetti(sheet, 80);
 }
 
 function renderFinish(session: Session): string {
@@ -1264,7 +1306,16 @@ async function renderSession(id: number): Promise<void> {
             sheet.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = true));
             const body: Record<string, unknown> = { finished: true, ...ratings };
             if (word) body.word = word;
-            if (await save(`/sessions/${session.id}`, body)) {
+            let promotions: Promotion[] | null = null;
+            try {
+              ({ promotions } = await api<{ promotions: Promotion[] }>(`/sessions/${session.id}`, {
+                method: "PATCH",
+                body: JSON.stringify(body),
+              }));
+            } catch {
+              setSaveStatus("Not saved — check signal", true);
+            }
+            if (promotions) {
               session.finished_at = new Date().toISOString();
               session.word = word;
               Object.assign(session, ratings);
@@ -1272,11 +1323,12 @@ async function renderSession(id: number): Promise<void> {
               document.getElementById("finish-area")!.innerHTML = renderFinish(session);
               updateProgress(session);
               bindFinish();
-              // A beat to see the confetti, then home
+              if (promotions.length) showLevelUps(sheet, promotions);
+              // A beat to see the confetti (longer for a level up), then home
               setTimeout(() => {
                 close();
                 if (location.hash === `#session-${session.id}`) location.hash = "";
-              }, 900);
+              }, promotions.length ? 2600 : 900);
             } else {
               sheet.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = false));
             }
@@ -1328,11 +1380,29 @@ async function renderSession(id: number): Promise<void> {
       wrapped = nowWrapped;
     };
 
+    card.querySelector<HTMLButtonElement>(".hit-top")?.addEventListener("click", (e) => {
+      const btn = e.currentTarget as HTMLButtonElement;
+      item.hit_top = item.hit_top ? 0 : 1;
+      btn.classList.toggle("on", !!item.hit_top);
+      btn.setAttribute("aria-pressed", String(!!item.hit_top));
+      btn.textContent = item.hit_top ? "Hit the top ✓" : "Hit the top?";
+      save(path, { hit_top: !!item.hit_top });
+    });
+
+    // Ticking a set starts the rest timer, except going from A1 into A2 or when it's all done
+    const maybeRest = () => {
+      if (session.rest_seconds > 0 && !leadsSuperset(item, session.items) && !isWrapped(session)) {
+        startRest(session.rest_seconds);
+      }
+    };
+
     // Tapping the last finished set undoes it; tapping any other set fills up to it
     card.querySelectorAll<HTMLButtonElement>(".set").forEach((btn) => {
       btn.addEventListener("click", () => {
         const n = Number(btn.dataset.set);
+        const before = item.sets_done;
         item.sets_done = item.sets_done === n ? n - 1 : n;
+        if (item.sets_done > before) maybeRest();
         const body: Record<string, unknown> = { sets_done: item.sets_done };
         if (item.skipped) {
           item.skipped = 0;
@@ -1349,6 +1419,7 @@ async function renderSession(id: number): Promise<void> {
       input.addEventListener("input", () => {
         const value = parseNumber(input.value);
         const reps = value === null ? null : Math.round(value);
+        if (item.set_reps[n - 1] === null && reps !== null) maybeRest();
         item.set_reps[n - 1] = reps;
         item.sets_done = item.set_reps.filter((r) => r !== null).length;
         if (item.skipped && reps !== null) {
@@ -1413,12 +1484,263 @@ async function renderSession(id: number): Promise<void> {
   });
 }
 
+// --- Report pain ---
+// A button at the bottom right of home and workouts; tap a body part to log it for today
+
+interface PainArea {
+  id: string;
+  name: string;
+}
+
+interface PainReport {
+  id: number;
+  area: string;
+  date: string;
+  intensity: number | null;
+  note: string;
+}
+
+const painButton = document.createElement("button");
+painButton.className = "pain-button";
+painButton.textContent = "Report pain";
+painButton.addEventListener("click", openPainSheet);
+document.body.appendChild(painButton);
+
+function painRecent(reports: PainReport[]): string {
+  if (!reports.length) return `<p class="sheet-label">Nothing reported yet.</p>`;
+  return reports
+    .slice(0, 6)
+    .map(
+      (r) => `
+      <div class="pain-report">
+        <span>${formatDate(r.date)} · <strong>${escapeHtml(r.area)}</strong>${r.intensity ? ` <span class="pain-stars">${"★".repeat(r.intensity)}</span>` : ""}${
+          r.note ? `<span class="pain-note">${escapeHtml(r.note)}</span>` : ""
+        }</span>
+        <button class="pain-undo" data-report="${r.id}" aria-label="Remove ${escapeHtml(r.area)} on ${formatDate(r.date)}">×</button>
+      </div>`
+    )
+    .join("");
+}
+
+/** Pick a body part, rate the intensity out of 5, add a note if you like, then Log */
+async function openPainSheet(): Promise<void> {
+  let areas: PainArea[];
+  let reports: PainReport[];
+  try {
+    ({ areas, reports } = await api<{ areas: PainArea[]; reports: PainReport[] }>("/pain"));
+  } catch {
+    alert("Couldn't load. Check your connection.");
+    return;
+  }
+  openSheet(
+    "Report pain",
+    `<p class="sheet-label">Where?</p>
+     <div class="chips pain-areas"></div>
+     <form class="pain-add">
+       <input type="text" maxlength="40" placeholder="Somewhere else…" aria-label="New body part" />
+       <button type="submit" class="chip">Add</button>
+     </form>
+     <div class="rating pain-intensity">
+       <span class="rating-label">Intensity</span>
+       <span class="rating-stars">${[1, 2, 3, 4, 5]
+         .map((n) => `<button class="rating-star" data-value="${n}" aria-label="Intensity ${n} of 5">★</button>`)
+         .join("")}</span>
+     </div>
+     <textarea class="pain-note-input" rows="2" maxlength="500" placeholder="Note (optional)"></textarea>
+     <button class="start pain-log sticker" disabled>Log it</button>
+     <p class="pain-logged" hidden></p>
+     <p class="sheet-label add-label">Recent</p>
+     <div class="pain-recent"></div>`,
+    (sheet) => {
+      const chips = sheet.querySelector<HTMLElement>(".pain-areas")!;
+      const recent = sheet.querySelector<HTMLElement>(".pain-recent")!;
+      const logged = sheet.querySelector<HTMLElement>(".pain-logged")!;
+      const logBtn = sheet.querySelector<HTMLButtonElement>(".pain-log")!;
+      const note = sheet.querySelector<HTMLTextAreaElement>(".pain-note-input")!;
+      const stars = sheet.querySelectorAll<HTMLButtonElement>(".pain-intensity .rating-star");
+      let areaId: string | null = null;
+      let intensity: number | null = null;
+
+      const paintStars = () =>
+        stars.forEach((st) => st.classList.toggle("on", Number(st.dataset.value) <= (intensity ?? 0)));
+      stars.forEach((st) =>
+        st.addEventListener("click", () => {
+          const value = Number(st.dataset.value);
+          intensity = intensity === value ? null : value;
+          paintStars();
+        })
+      );
+
+      const renderRecent = () => {
+        recent.innerHTML = painRecent(reports);
+        recent.querySelectorAll<HTMLButtonElement>("[data-report]").forEach((btn) =>
+          btn.addEventListener("click", async () => {
+            btn.disabled = true;
+            try {
+              ({ reports } = await api<{ reports: PainReport[] }>(`/pain/${btn.dataset.report}`, { method: "DELETE" }));
+              renderRecent();
+            } catch {
+              btn.disabled = false;
+            }
+          })
+        );
+      };
+
+      const renderAreas = () => {
+        chips.innerHTML = areas
+          .map(
+            (a) =>
+              `<button class="chip pain-area${a.id === areaId ? " on" : ""}" data-area="${escapeHtml(a.id)}"
+                 aria-pressed="${a.id === areaId}">${escapeHtml(a.name)}</button>`
+          )
+          .join("");
+        chips.querySelectorAll<HTMLButtonElement>("[data-area]").forEach((chip) =>
+          chip.addEventListener("click", () => {
+            areaId = areaId === chip.dataset.area ? null : chip.dataset.area!;
+            logBtn.disabled = !areaId;
+            logged.hidden = true;
+            renderAreas();
+          })
+        );
+      };
+
+      sheet.querySelector<HTMLFormElement>(".pain-add")!.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const input = sheet.querySelector<HTMLInputElement>(".pain-add input")!;
+        const name = input.value.trim();
+        if (!name) return;
+        try {
+          const { area } = await api<{ area: PainArea }>("/pain/areas", {
+            method: "POST",
+            body: JSON.stringify({ name }),
+          });
+          if (!areas.some((a) => a.id === area.id)) areas.push(area);
+          areaId = area.id;
+          logBtn.disabled = false;
+          input.value = "";
+          renderAreas();
+        } catch {
+          alert("Couldn't add it. Check your connection.");
+        }
+      });
+
+      logBtn.addEventListener("click", async () => {
+        if (!areaId) return;
+        logBtn.disabled = true;
+        try {
+          ({ reports } = await api<{ reports: PainReport[] }>("/pain", {
+            method: "POST",
+            body: JSON.stringify({ areaId, date: localToday(), intensity, note: note.value.trim() }),
+          }));
+          logged.hidden = false;
+          logged.textContent = `Logged ${areas.find((a) => a.id === areaId)?.name ?? ""} for today.`;
+          areaId = null;
+          intensity = null;
+          note.value = "";
+          paintStars();
+          renderAreas();
+          renderRecent();
+        } catch {
+          logBtn.disabled = false;
+          alert("Couldn't log it. Check your connection.");
+        }
+      });
+
+      renderAreas();
+      renderRecent();
+    }
+  );
+}
+
+// --- Rest timer ---
+// Ticking a set starts a countdown pill at the bottom left; tap it to dismiss. It runs
+// off an end time, so it's still right after the screen locks.
+
+const restTimer = document.createElement("button");
+restTimer.className = "rest-timer";
+restTimer.hidden = true;
+document.body.appendChild(restTimer);
+let restEnd = 0;
+let restTotal = 0;
+let restTick = 0;
+let restHide = 0;
+let audio: AudioContext | null = null;
+
+function stopRest(): void {
+  clearInterval(restTick);
+  clearTimeout(restHide);
+  restTimer.hidden = true;
+  restTimer.classList.remove("go");
+}
+
+function beep(): void {
+  if (!audio) return;
+  const now = audio.currentTime;
+  [0, 0.25].forEach((offset) => {
+    const osc = audio!.createOscillator();
+    const gain = audio!.createGain();
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.0001, now + offset);
+    gain.gain.exponentialRampToValueAtTime(0.25, now + offset + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.18);
+    osc.connect(gain).connect(audio!.destination);
+    osc.start(now + offset);
+    osc.stop(now + offset + 0.2);
+  });
+}
+
+function paintRest(): void {
+  const left = Math.max(0, Math.ceil((restEnd - Date.now()) / 1000));
+  if (left === 0) {
+    clearInterval(restTick);
+    restTimer.classList.add("go");
+    restTimer.textContent = "Go!";
+    restTimer.style.setProperty("--left", "0");
+    beep();
+    navigator.vibrate?.(200);
+    restHide = window.setTimeout(stopRest, 4000);
+    return;
+  }
+  restTimer.textContent = `Rest ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+  restTimer.style.setProperty("--left", String(left / restTotal));
+}
+
+function startRest(seconds: number): void {
+  stopRest();
+  // Created during the tap, so the browser lets it play the end beep later
+  try {
+    audio ??= new AudioContext();
+    void audio.resume();
+  } catch {
+    audio = null;
+  }
+  restTotal = seconds;
+  restEnd = Date.now() + seconds * 1000;
+  restTimer.hidden = false;
+  paintRest();
+  restTick = window.setInterval(paintRest, 250);
+}
+
+restTimer.addEventListener("click", stopRest);
+document.addEventListener("visibilitychange", () => {
+  if (!restTimer.hidden && !restTimer.classList.contains("go")) paintRest();
+});
+
+/** In a superset, the first exercise (A1) goes straight into its partner (A2) without rest */
+function leadsSuperset(item: SessionItem, items: SessionItem[]): boolean {
+  const match = item.label.match(/^([A-Z])1$/);
+  return !!match && items.some((i) => i.label === `${match[1]}2`);
+}
+
 // --- Routing ---
 
 function route(): void {
   window.scrollTo(0, 0);
   const session = location.hash.match(/^#session-(\d+)$/);
   const preview = location.hash.match(/^#sequence-(.+)$/);
+  painButton.hidden = !!preview;
+  // A rest timer belongs to the workout it was started in
+  stopRest();
   if (session) renderSession(Number(session[1]));
   else if (preview) renderPreview(decodeURIComponent(preview[1]));
   else renderHome();
