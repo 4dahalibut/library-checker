@@ -1770,10 +1770,10 @@ function leadsSuperset(item: SessionItem, items: SessionItem[]): boolean {
 
 type HoldStep = { kind: "prep" | "hold" | "rest"; seconds: number; label: string };
 
-/** Hands-free: a loop of arrows, i.e. keep going through every set */
-const REPEAT_ICON = `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none"
-  stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M17 2l3 3-3 3"/><path d="M4 11V9a4 4 0 0 1 4-4h12"/><path d="M7 22l-3-3 3-3"/><path d="M20 13v2a4 4 0 0 1-4 4H4"/></svg>`;
+/** Hands-free: fast-forward, i.e. run straight through every set */
+const FAST_FORWARD_ICON = `<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"
+  fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+  <path d="M3 6l9 6-9 6z"/><path d="M12 6l9 6-9 6z"/></svg>`;
 
 const HOLD_PREP_SECONDS = 5;
 const HANDS_FREE_KEY = "workout-hold-hands-free";
@@ -1875,7 +1875,7 @@ function openHoldPanel(item: SessionItem, session: Session, applySets: (n: numbe
          <button class="holdp-go start sticker"></button>
          <button class="holdp-auto" aria-pressed="false"${superset ? " disabled" : ""}
            aria-label="${superset ? `Hands-free is off for supersets: you go to ${partner} between sets` : `Hands-free: run every set with ${restBetween}s rest between`}"
-           title="${superset ? `Not for supersets: you go to ${partner} between sets` : `Hands-free: run every set, ${restBetween}s rest between`}">${REPEAT_ICON}</button>
+           title="${superset ? `Not for supersets: you go to ${partner} between sets` : `Hands-free: run every set, ${restBetween}s rest between`}">${FAST_FORWARD_ICON}</button>
          <button class="holdp-reset chip">Reset</button>
        </div>
      </div>`,
@@ -1929,9 +1929,7 @@ function openHoldPanel(item: SessionItem, session: Session, applySets: (n: numbe
         const step = steps[stepIndex];
         if (!step) {
           display.dataset.kind = "";
-          statusEl.textContent = allDone()
-            ? "All done ✓"
-            : `${handsFree ? "Hands-free · " : ""}Set ${item.sets_done + 1} of ${totalSets(item)}`;
+          statusEl.textContent = allDone() ? "All done ✓" : `Set ${item.sets_done + 1} of ${totalSets(item)}`;
           timeEl.textContent = clockText(holdSeconds(item) * 1000, false);
           goBtn.textContent = "Start";
           goBtn.disabled = allDone();
