@@ -568,8 +568,10 @@ export function listSequences(): ResolvedSequence[] {
       current_rung: number;
       rung_count: number;
     })[];
+  const typical = typicalMinutes();
   return seqs.map((seq) => ({
     ...seq,
+    typicalMinutes: typical.get(seq.id) ?? null,
     items: slots
       .filter((s) => s.sequence_id === seq.id)
       .map((s): ResolvedSequenceItem => {
@@ -734,6 +736,8 @@ export interface SessionSummary {
   word: string | null;
   effort: number | null;
   conscientiousness: number | null;
+  /** Minutes from Start to Finish; null until finished */
+  duration_minutes: number | null;
   total: number;
   done: number;
   skipped: number;
@@ -844,11 +848,42 @@ function totalSets(item: { target_sets: number | null; extra_side: Side | null }
   return Math.max(item.target_sets ?? 1, 1) + (item.extra_side ? 1 : 0);
 }
 
+// Minutes from pressing Start (the session's creation) to pressing Finish
+const DURATION_SQL =
+  "CASE WHEN s.finished_at IS NOT NULL THEN CAST(ROUND((julianday(s.finished_at) - julianday(s.created_at)) * 1440) AS INTEGER) END";
+
+/**
+ * How long each sequence usually takes: the median of its last five finished sessions,
+ * leaving out ones under a minute or over four hours (left open by mistake)
+ */
+export function typicalMinutes(): Map<string, number> {
+  const rows = workoutDb
+    .prepare(
+      `SELECT sequence_id, minutes FROM (
+         SELECT s.sequence_id, ${DURATION_SQL} AS minutes,
+                ROW_NUMBER() OVER (PARTITION BY s.sequence_id ORDER BY s.date DESC, s.id DESC) AS n
+         FROM sessions s
+         WHERE s.finished_at IS NOT NULL
+           AND (julianday(s.finished_at) - julianday(s.created_at)) * 1440 BETWEEN 1 AND 240
+       ) WHERE n <= 5`
+    )
+    .all() as { sequence_id: string; minutes: number }[];
+  const bySequence = new Map<string, number[]>();
+  for (const r of rows) bySequence.set(r.sequence_id, [...(bySequence.get(r.sequence_id) ?? []), r.minutes]);
+  const typical = new Map<string, number>();
+  for (const [id, list] of bySequence) {
+    const sorted = [...list].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    typical.set(id, sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2));
+  }
+  return typical;
+}
+
 export function listSessions(limit = 30): SessionSummary[] {
   return workoutDb
     .prepare(
       `SELECT s.id, s.sequence_id, s.sequence_name, s.date, s.finished_at, s.word, s.effort,
-              s.conscientiousness, COUNT(i.id) AS total,
+              s.conscientiousness, ${DURATION_SQL} AS duration_minutes, COUNT(i.id) AS total,
               COALESCE(SUM(CASE WHEN ${DONE_SQL} THEN 1 ELSE 0 END), 0) AS done,
               COALESCE(SUM(i.skipped), 0) AS skipped
        FROM sessions s LEFT JOIN session_items i ON i.session_id = s.id

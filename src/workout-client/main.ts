@@ -33,6 +33,8 @@ interface SequenceItem {
 interface Sequence {
   id: string;
   name: string;
+  /** Usual length in minutes, from recent finished sessions; null until there are some */
+  typicalMinutes: number | null;
   items: SequenceItem[];
 }
 
@@ -68,6 +70,8 @@ interface SessionSummary {
   sequence_name: string;
   date: string;
   finished_at: string | null;
+  /** Start to Finish, in whole minutes */
+  duration_minutes: number | null;
   word: string | null;
   effort: number | null;
   conscientiousness: number | null;
@@ -387,6 +391,12 @@ const RATINGS = [
 type RatingField = (typeof RATINGS)[number]["field"];
 
 /** e.g. "Effort ★4 · Conscientiousness ★5" as HTML, leaving out ones not given; each pair stays on one line */
+/** "34 min" or "1h 05m" */
+function minutesText(total: number): string {
+  if (total < 60) return `${total} min`;
+  return `${Math.floor(total / 60)}h ${String(total % 60).padStart(2, "0")}m`;
+}
+
 function ratingsText(r: { effort: number | null; conscientiousness: number | null }): string {
   return RATINGS.filter(({ field }) => r[field] !== null)
     .map(({ field, label }) => `<span class="rating-pair">${label} ★${r[field]}</span>`)
@@ -552,6 +562,19 @@ async function renderHome(keepScroll = false): Promise<void> {
   }
   const allDays = weeks.flatMap((w) => w.days);
 
+  const usual = new Map(sequences.map((s) => [s.id, s.typicalMinutes]));
+  // What's still ahead that day, from how long each planned session usually takes
+  const dayEstimate = (d: WeekDay): string => {
+    if (d.isPast) return "";
+    const known = d.items
+      .filter((i) => !i.optional && !i.session?.finished)
+      .map((i) => usual.get(i.sequenceId))
+      .filter((m): m is number => typeof m === "number");
+    if (!known.length) return "";
+    const text = minutesText(known.reduce((a, b) => a + b, 0));
+    return `<span class="week-time" aria-label="About ${text}">~${text}</span>`;
+  };
+
   const dayRow = (d: WeekDay) => {
       const pills: PillItem[] = [
         ...d.items,
@@ -571,6 +594,7 @@ async function renderHome(keepScroll = false): Promise<void> {
           <button class="week-day" aria-label="${d.isToday ? "Show or hide the rest of the week" : formatDate(d.date)}">
             <span class="week-dow">${d.isToday ? "Today" : SHORT_DAYS[d.weekday]}</span>
             <span class="week-date">${dayNumber(d.date)}${d.isToday ? `<span class="week-chevron" aria-hidden="true">▾</span>` : ""}</span>
+            ${dayEstimate(d)}
           </button>
           <div class="week-sessions">${content}</div>
           ${d.isPast ? "" : `<button class="week-edit" data-date="${d.date}" aria-label="Change ${dayTitle(d)}">${EDIT_ICON}</button>`}
@@ -587,6 +611,11 @@ async function renderHome(keepScroll = false): Promise<void> {
     })
     .join("");
 
+  const infoLine = (s: SessionSummary) =>
+    [s.duration_minutes !== null ? `<span class="rating-pair">${minutesText(s.duration_minutes)}</span>` : "", ratingsText(s)]
+      .filter(Boolean)
+      .join(" · ");
+
   const history = sessions.length
     ? sessions
         .map((s) => {
@@ -597,7 +626,7 @@ async function renderHome(keepScroll = false): Promise<void> {
             <span class="history-date">${formatDate(s.date)}</span>
             <span class="history-name">${escapeHtml(s.sequence_name)}${
               s.finished_at && s.word ? `<span class="history-word">${escapeHtml(s.word)}</span>` : ""
-            }${ratingsText(s) ? `<span class="history-ratings">${ratingsText(s)}</span>` : ""}</span>
+            }${infoLine(s) ? `<span class="history-ratings">${infoLine(s)}</span>` : ""}</span>
             ${s.finished_at && s.word ? "" : `<span class="history-count">${s.done}/${s.total}${skipped}</span>`}
           </a>
           <button class="log-trash" data-delete="${s.id}" aria-label="Delete ${escapeHtml(s.sequence_name)} on ${formatDate(s.date)}">${TRASH_ICON}</button>
@@ -984,7 +1013,9 @@ async function renderPreview(sequenceId: string): Promise<void> {
       <a class="back" href="#" aria-label="Back">‹</a>
       <div class="session-title">
         <h1>${escapeHtml(sequence.name)}</h1>
-        <p>${exerciseCount(sequence.items.length)}</p>
+        <p>${exerciseCount(sequence.items.length)}${
+          sequence.typicalMinutes ? ` · usually about ${minutesText(sequence.typicalMinutes)}` : ""
+        }</p>
       </div>
     </header>
     <ol class="preview sticker">${rows}</ol>

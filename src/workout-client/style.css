@@ -1743,3 +1743,13 @@ input::placeholder {
   position: static;
   margin-top: 28px;
 }
+
+/* Expected time for what's left that day */
+.week-time {
+  margin-top: 3px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  white-space: nowrap;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}

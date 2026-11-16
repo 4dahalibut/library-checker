@@ -78,6 +78,8 @@ export interface ResolvedSequence {
   name: string;
   /** Seconds of rest after a set (0 = no rest timer) */
   restSeconds: number;
+  /** Usual minutes from Start to Finish, from recent sessions; null until there are some */
+  typicalMinutes: number | null;
   items: ResolvedSequenceItem[];
 }
 
