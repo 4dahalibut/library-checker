@@ -22,6 +22,7 @@ import {
   deletePainReport,
   getRestSeconds,
   setRestSeconds,
+  setExerciseRest,
   setSessionWord,
   setSessionRating,
   pastNotes,
@@ -100,7 +101,11 @@ workoutRouter.get("/api/exercises", (_req, res) => {
 // Full replace: every field is required so a rename can't silently reset the switches
 workoutRouter.put("/api/exercises/:id", requireAdmin, (req, res) => {
   const { id } = req.params;
-  const { name, weighted, timed, toFailure } = req.body ?? {};
+  const { name, weighted, timed, toFailure, restSeconds } = req.body ?? {};
+  if (restSeconds !== undefined && restSeconds !== null && !(Number.isInteger(restSeconds) && restSeconds >= 0 && restSeconds <= 600)) {
+    res.status(400).json({ error: "restSeconds must be 0 to 600, or null to use the sequence's" });
+    return;
+  }
   if (!SLUG_RE.test(id)) {
     res.status(400).json({ error: "id must be lowercase letters, digits and dashes" });
     return;
@@ -115,7 +120,9 @@ workoutRouter.put("/api/exercises/:id", requireAdmin, (req, res) => {
   }
   const exercise: Exercise = { id, name: name.trim(), weighted, timed, toFailure };
   saveExercise(exercise);
-  res.json({ exercise });
+  // Left alone unless given; null goes back to the sequence's rest
+  if (restSeconds !== undefined) setExerciseRest(id, restSeconds);
+  res.json({ exercise, restSeconds: listExercises().find((e) => e.id === id)?.restSeconds ?? null });
 });
 
 // --- Ladders ---

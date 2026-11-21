@@ -101,6 +101,8 @@ interface SessionItem {
   seconds: number | null;
   notes: string;
   exercise_id: string | null;
+  /** The exercise's own rest after a set; null uses the workout's */
+  rest_seconds: number | null;
   ladder_id: string | null;
   rung: number | null;
   weighted: number;
@@ -1478,9 +1480,8 @@ async function renderSession(id: number): Promise<void> {
 
     // Ticking a set starts the rest timer, except going from A1 into A2 or when it's all done
     const maybeRest = () => {
-      if (session.rest_seconds > 0 && !leadsSuperset(item, session.items) && !isWrapped(session)) {
-        startRest(session.rest_seconds);
-      }
+      const rest = restFor(item, session);
+      if (rest > 0 && !leadsSuperset(item, session.items) && !isWrapped(session)) startRest(rest);
     };
 
     // The timer panel ticks sets through the same path as tapping a circle (minus the rest pill)
@@ -1899,6 +1900,13 @@ const FAST_FORWARD_ICON = `<svg viewBox="0 0 24 24" width="22" height="22" aria-
   <path d="M3 6l9 6-9 6z"/><path d="M12 6l9 6-9 6z"/></svg>`;
 
 const HOLD_PREP_SECONDS = 5;
+// Time to get from one side to the other on per-side holds
+const HOLD_SWITCH_SECONDS = 8;
+
+/** Rest after a set: the exercise's own if it has one, else the workout's */
+function restFor(item: SessionItem, session: Session): number {
+  return item.rest_seconds ?? session.rest_seconds;
+}
 const HANDS_FREE_KEY = "workout-hold-hands-free";
 const modeKey = (item: SessionItem) => `workout-hold-mode:${item.exercise_id ?? item.name}`;
 
@@ -1945,7 +1953,7 @@ function setSteps(item: SessionItem, setIndex: number): HoldStep[] {
     return [
       { kind: "prep", seconds: HOLD_PREP_SECONDS, label: "Get set" },
       { kind: "hold", seconds, label: "Side 1" },
-      { kind: "prep", seconds: HOLD_PREP_SECONDS, label: "Switch sides" },
+      { kind: "prep", seconds: HOLD_SWITCH_SECONDS, label: "Switch sides" },
       { kind: "hold", seconds, label: "Side 2" },
     ];
   }
@@ -1965,7 +1973,8 @@ function openHoldPanel(item: SessionItem, session: Session, applySets: (n: numbe
     : undefined;
   const superset = !!partnerItem;
   const partner = partnerItem?.label ?? "";
-  const restBetween = session.rest_seconds > 0 ? session.rest_seconds : 10;
+  const itemRest = restFor(item, session);
+  const restBetween = itemRest > 0 ? itemRest : 10;
   let mode: "countdown" | "stopwatch" = readStored(modeKey(item)) === "stopwatch" ? "stopwatch" : "countdown";
   // Hidden (and off) for superset exercises
   let handsFree = !superset && readStored(HANDS_FREE_KEY) === "1";
@@ -2147,7 +2156,7 @@ function openHoldPanel(item: SessionItem, session: Session, applySets: (n: numbe
           beep(2);
           applySets(Math.min(item.sets_done + 1, totalSets(item)));
           renderSets();
-          const rest = handsFree ? restBetween : superset ? 0 : session.rest_seconds;
+          const rest = handsFree ? restBetween : superset ? 0 : itemRest;
           if (allDone() || rest <= 0) {
             finishCountdown();
             continue;

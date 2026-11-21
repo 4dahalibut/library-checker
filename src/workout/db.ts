@@ -327,6 +327,14 @@ const MIGRATIONS: (() => void)[] = [
       UPDATE sequences SET rest_seconds = 30 WHERE id = 'mobility';
     `);
   },
+
+  // 7: rest between sets per exercise, overriding the sequence's (NULL = use the sequence's)
+  () => {
+    workoutDb.exec(`
+      ALTER TABLE exercises ADD COLUMN rest_seconds INTEGER
+        CHECK (rest_seconds IS NULL OR rest_seconds BETWEEN 0 AND 600);
+    `);
+  },
 ];
 
 function migrate(): void {
@@ -358,12 +366,25 @@ export interface ExerciseGuide {
   cues: string[];
 }
 
-export function listExercises(): (Exercise & ExerciseGuide)[] {
+export function listExercises(): (Exercise & ExerciseGuide & { restSeconds: number | null })[] {
   const rows = workoutDb
-    .prepare("SELECT id, name, weighted, timed, to_failure, description FROM exercises ORDER BY name")
-    .all() as (ExerciseRow & { description: string })[];
+    .prepare("SELECT id, name, weighted, timed, to_failure, description, rest_seconds FROM exercises ORDER BY name")
+    .all() as (ExerciseRow & { description: string; rest_seconds: number | null })[];
   const guides = getGuides(rows.map((r) => r.id));
-  return rows.map((r) => ({ ...toExercise(r), ...guides.get(r.id)! }));
+  return rows.map((r) => ({ ...toExercise(r), ...guides.get(r.id)!, restSeconds: r.rest_seconds }));
+}
+
+/** Rest after each set of this exercise; null falls back to the sequence's */
+export function setExerciseRest(id: string, seconds: number | null): void {
+  workoutDb.prepare("UPDATE exercises SET rest_seconds = ? WHERE id = ?").run(seconds, id);
+}
+
+function exerciseRests(ids: string[]): Map<string, number | null> {
+  if (!ids.length) return new Map();
+  const rows = workoutDb
+    .prepare(`SELECT id, rest_seconds FROM exercises WHERE id IN (${ids.map(() => "?").join(", ")})`)
+    .all(...ids) as { id: string; rest_seconds: number | null }[];
+  return new Map(rows.map((r) => [r.id, r.rest_seconds]));
 }
 
 /** Descriptions and cues for these exercises (empty for unknown ids) */
@@ -747,6 +768,8 @@ export interface SessionSummary {
 export interface SessionItem {
   id: number;
   position: number;
+  /** Rest after each set when the exercise sets its own; null uses the sequence's */
+  rest_seconds: number | null;
   name: string;
   cue: string;
   label: string;
@@ -907,8 +930,11 @@ export function getSession(id: number): Session | null {
               seconds, notes, exercise_id, ladder_id, rung, weighted, timed, to_failure, hit_top
        FROM session_items WHERE session_id = ? ORDER BY position`
     )
-    .all(id) as Omit<SessionItem, "set_reps" | "last_set_reps" | "last_note" | "description" | "cues">[];
-  const guides = getGuides([...new Set(items.map((i) => i.exercise_id).filter((e): e is string => !!e))]);
+    .all(id) as Omit<SessionItem, "set_reps" | "last_set_reps" | "last_note" | "description" | "cues" | "rest_seconds">[];
+  const exerciseIds = [...new Set(items.map((i) => i.exercise_id).filter((e): e is string => !!e))];
+  const guides = getGuides(exerciseIds);
+  // Read live from the exercise, so a change applies to sessions already started
+  const rests = exerciseRests(exerciseIds);
   const sets = workoutDb
     .prepare(
       `SELECT ss.session_item_id, ss.set_number, ss.reps FROM session_sets ss
@@ -931,7 +957,8 @@ export function getSession(id: number): Session | null {
           .forEach((r) => (lastSetReps[r.set_number - 1] = r.reps));
       }
       const lastNote = item.exercise_id ? latestNote("exercise", item.exercise_id, session) : null;
-      return { ...item, set_reps: setReps, last_set_reps: lastSetReps, last_note: lastNote, ...guide };
+      const rest = item.exercise_id ? (rests.get(item.exercise_id) ?? null) : null;
+      return { ...item, set_reps: setReps, last_set_reps: lastSetReps, last_note: lastNote, ...guide, rest_seconds: rest };
     }),
   };
 }
